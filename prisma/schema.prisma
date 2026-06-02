@@ -1,0 +1,253 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum NoteStatus {
+  DRAFT
+  PUBLISHED
+  HIDDEN
+  ARCHIVED
+}
+
+enum ReportStatus {
+  OPEN
+  REVIEWING
+  RESOLVED
+  REJECTED
+}
+
+enum ReportTargetType {
+  NOTE
+  COMMENT
+  USER
+}
+
+enum NotificationType {
+  LIKE
+  COMMENT
+  FOLLOW
+  FAVORITE
+  SYSTEM
+  REPORT_UPDATE
+}
+
+model User {
+  id                     String          @id @default(cuid())
+  email                  String          @unique
+  passwordHash           String          @map("password_hash")
+  name                   String
+  handle                 String          @unique
+  bio                    String?         @db.VarChar(280)
+  avatarUrl              String?         @map("avatar_url")
+  role                   UserRole        @default(USER)
+  notes                  Note[]
+  comments               Comment[]
+  likes                  Like[]
+  favorites              Favorite[]
+  following              Follow[]        @relation("UserFollowing")
+  followers              Follow[]        @relation("UserFollowers")
+  notifications          Notification[]  @relation("NotificationRecipient")
+  triggeredNotifications Notification[]  @relation("NotificationActor")
+  reportsFiled           Report[]        @relation("ReportReporter")
+  reportsReceived        Report[]        @relation("ReportReportedUser")
+  auditLogs              AdminAuditLog[] @relation("AdminAuditActor")
+  createdAt              DateTime        @default(now()) @map("created_at")
+  updatedAt              DateTime        @updatedAt @map("updated_at")
+
+  @@index([role])
+  @@map("users")
+}
+
+model Note {
+  id          String         @id @default(cuid())
+  authorId    String         @map("author_id")
+  author      User           @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  title       String         @db.VarChar(120)
+  slug        String         @unique
+  content     String         @db.Text
+  status      NoteStatus     @default(DRAFT)
+  viewCount   Int            @default(0) @map("view_count")
+  images      NoteImage[]
+  comments    Comment[]
+  likes       Like[]
+  favorites   Favorite[]
+  tags        NoteTag[]
+  reports     Report[]       @relation("ReportNote")
+  embedding   NoteEmbedding?
+  publishedAt DateTime?      @map("published_at")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  @@index([authorId])
+  @@index([status, publishedAt])
+  @@map("notes")
+}
+
+model NoteImage {
+  id        String   @id @default(cuid())
+  noteId    String   @map("note_id")
+  note      Note     @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  url       String
+  alt       String?
+  width     Int?
+  height    Int?
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([noteId])
+  @@map("note_images")
+}
+
+model Comment {
+  id        String    @id @default(cuid())
+  noteId    String    @map("note_id")
+  note      Note      @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  authorId  String    @map("author_id")
+  author    User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  parentId  String?   @map("parent_id")
+  parent    Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   Comment[] @relation("CommentReplies")
+  content   String    @db.Text
+  reports   Report[]  @relation("ReportComment")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  @@index([noteId, createdAt])
+  @@index([authorId])
+  @@map("comments")
+}
+
+model Like {
+  userId    String   @map("user_id")
+  noteId    String   @map("note_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  note      Note     @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@id([userId, noteId])
+  @@index([noteId])
+  @@map("likes")
+}
+
+model Favorite {
+  userId    String   @map("user_id")
+  noteId    String   @map("note_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  note      Note     @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@id([userId, noteId])
+  @@index([noteId])
+  @@map("favorites")
+}
+
+model Follow {
+  followerId  String   @map("follower_id")
+  followingId String   @map("following_id")
+  follower    User     @relation("UserFollowing", fields: [followerId], references: [id], onDelete: Cascade)
+  following   User     @relation("UserFollowers", fields: [followingId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@id([followerId, followingId])
+  @@index([followingId])
+  @@map("follows")
+}
+
+model Tag {
+  id        String    @id @default(cuid())
+  name      String    @unique
+  slug      String    @unique
+  notes     NoteTag[]
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@map("tags")
+}
+
+model NoteTag {
+  noteId String @map("note_id")
+  tagId  String @map("tag_id")
+  note   Note   @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([noteId, tagId])
+  @@index([tagId])
+  @@map("note_tags")
+}
+
+model Notification {
+  id          String           @id @default(cuid())
+  recipientId String           @map("recipient_id")
+  recipient   User             @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  actorId     String?          @map("actor_id")
+  actor       User?            @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+  type        NotificationType
+  title       String
+  body        String?
+  href        String?
+  readAt      DateTime?        @map("read_at")
+  createdAt   DateTime         @default(now()) @map("created_at")
+
+  @@index([recipientId, readAt, createdAt])
+  @@map("notifications")
+}
+
+model Report {
+  id             String           @id @default(cuid())
+  reporterId     String           @map("reporter_id")
+  reporter       User             @relation("ReportReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  targetType     ReportTargetType @map("target_type")
+  noteId         String?          @map("note_id")
+  note           Note?            @relation("ReportNote", fields: [noteId], references: [id], onDelete: Cascade)
+  commentId      String?          @map("comment_id")
+  comment        Comment?         @relation("ReportComment", fields: [commentId], references: [id], onDelete: Cascade)
+  reportedUserId String?          @map("reported_user_id")
+  reportedUser   User?            @relation("ReportReportedUser", fields: [reportedUserId], references: [id], onDelete: Cascade)
+  reason         String
+  detail         String?          @db.Text
+  status         ReportStatus     @default(OPEN)
+  resolution     String?          @db.Text
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+
+  @@index([status, createdAt])
+  @@index([targetType])
+  @@map("reports")
+}
+
+model AdminAuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?  @map("actor_id")
+  actor      User?    @relation("AdminAuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([actorId, createdAt])
+  @@index([entityType, entityId])
+  @@map("admin_audit_logs")
+}
+
+model NoteEmbedding {
+  noteId     String                    @id @map("note_id")
+  note       Note                      @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  embedding  Unsupported("vector(1536)")
+  model      String                    @default("text-embedding-3-small")
+  sourceText String                    @map("source_text") @db.Text
+  createdAt  DateTime                  @default(now()) @map("created_at")
+  updatedAt  DateTime                  @updatedAt @map("updated_at")
+
+  @@map("note_embeddings")
+}
