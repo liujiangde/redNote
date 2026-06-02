@@ -2,9 +2,15 @@ import { Sparkles, TrendingUp } from "lucide-react";
 
 import { MetricCard } from "@/components/metric-card";
 import { NoteCard } from "@/components/note-card";
-import { adminMetrics, demoNotes, topicTrends } from "@/lib/mock-data";
+import { getAdminMetrics, getHomeFeedNotes, getTrendingTopics } from "@/lib/content-data";
 
-export default function HomePage() {
+export default async function HomePage() {
+  const [notes, topicTrends, adminMetrics] = await Promise.all([
+    getHomeFeedNotes(),
+    getTrendingTopics(),
+    getAdminMetrics(),
+  ]);
+
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
       <section className="space-y-6">
@@ -35,11 +41,17 @@ export default function HomePage() {
             </div>
           </div>
         </div>
-        <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
-          {demoNotes.map((note) => (
-            <NoteCard key={note.id} note={note} />
-          ))}
-        </div>
+        {notes.length ? (
+          <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+            {notes.map((note) => (
+              <NoteCard key={note.id} note={note} />
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
+            暂无已发布笔记，运行 seed 或发布第一篇内容后会出现在这里。
+          </div>
+        )}
       </section>
       <aside className="space-y-5">
         <section className="rounded-lg border border-slate-200 bg-white p-5">
@@ -59,6 +71,9 @@ export default function HomePage() {
                 </span>
               </div>
             ))}
+            {!topicTrends.length && (
+              <p className="text-sm text-slate-500">暂无标签数据。</p>
+            )}
           </div>
         </section>
         <div className="grid gap-4">
@@ -70,4 +85,3 @@ export default function HomePage() {
     </div>
   );
 }
-

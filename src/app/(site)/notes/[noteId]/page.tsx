@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { Bookmark, Heart, MessageCircle } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { demoNotes } from "@/lib/mock-data";
+import { getPublishedNoteDetail } from "@/lib/content-data";
 
 export default async function NoteDetailPage({
   params,
@@ -11,7 +11,7 @@ export default async function NoteDetailPage({
   params: Promise<{ noteId: string }>;
 }) {
   const { noteId } = await params;
-  const note = demoNotes.find((item) => item.id === noteId);
+  const note = await getPublishedNoteDetail(noteId);
 
   if (!note) {
     notFound();
@@ -21,7 +21,7 @@ export default async function NoteDetailPage({
     <article className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
         <div className="relative aspect-[16/10] bg-slate-100">
-          <Image src={note.imageUrl} alt={note.title} fill className="object-cover" priority />
+          <Image src={note.imageUrl} alt={note.imageAlt} fill className="object-cover" priority />
         </div>
       </div>
       <aside className="rounded-lg border border-slate-200 bg-white p-5">
@@ -39,7 +39,7 @@ export default async function NoteDetailPage({
           </div>
         </div>
         <h1 className="mt-5 text-2xl font-bold text-slate-950">{note.title}</h1>
-        <p className="mt-3 leading-7 text-slate-600">{note.excerpt}</p>
+        <p className="mt-3 whitespace-pre-line leading-7 text-slate-600">{note.content}</p>
         <div className="mt-4 flex flex-wrap gap-2">
           {note.tags.map((tag) => (
             <Badge key={tag}>{tag}</Badge>
@@ -59,6 +59,9 @@ export default async function NoteDetailPage({
             <strong className="mt-1 block">{note.comments}</strong>
           </div>
         </div>
+        <p className="mt-4 text-center text-xs text-slate-500">
+          {note.views.toLocaleString()} 次浏览 · {note.createdAt}
+        </p>
       </aside>
     </article>
   );

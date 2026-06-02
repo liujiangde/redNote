@@ -1,7 +1,7 @@
 import { Search } from "lucide-react";
 
 import { NoteCard } from "@/components/note-card";
-import { demoNotes } from "@/lib/mock-data";
+import { searchPublishedNotes } from "@/lib/content-data";
 
 export default async function SearchPage({
   searchParams,
@@ -9,6 +9,7 @@ export default async function SearchPage({
   searchParams: Promise<{ q?: string }>;
 }) {
   const { q } = await searchParams;
+  const notes = await searchPublishedNotes(q);
 
   return (
     <section className="space-y-6">
@@ -25,12 +26,17 @@ export default async function SearchPage({
           </div>
         </div>
       </div>
-      <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-        {demoNotes.map((note) => (
-          <NoteCard key={note.id} note={note} />
-        ))}
-      </div>
+      {notes.length ? (
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {notes.map((note) => (
+            <NoteCard key={note.id} note={note} />
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
+          没有找到匹配的已发布笔记。
+        </div>
+      )}
     </section>
   );
 }
-

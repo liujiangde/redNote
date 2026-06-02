@@ -19,7 +19,32 @@ RedNote Lite 是一个面向作品集和后续扩展的 C 端社区项目骨架�
 
 ## Local Services
 
-本机开发默认使用 Homebrew 服务，不依赖 Docker。
+推荐使用 Docker 启动带 pgvector 的 PostgreSQL 16：
+
+```bash
+docker run --name rednote-postgres \
+  -e POSTGRES_USER=rednote \
+  -e POSTGRES_PASSWORD=rednote \
+  -e POSTGRES_DB=rednote \
+  -p 5432:5432 \
+  -v rednote-postgres-data:/var/lib/postgresql/data \
+  -d pgvector/pgvector:0.8.2-pg16
+```
+
+如果容器已经创建过，日常只需要启动它：
+
+```bash
+docker start rednote-postgres
+```
+
+验证数据库和 pgvector：
+
+```bash
+docker exec -it rednote-postgres psql -U rednote -d rednote \
+  -c "CREATE EXTENSION IF NOT EXISTS vector; SELECT extversion FROM pg_extension WHERE extname = 'vector';"
+```
+
+也可以使用 Homebrew 服务：
 
 ```bash
 brew install postgresql@16 pgvector redis minio
@@ -34,15 +59,39 @@ brew services start minio
 export PATH="/opt/homebrew/opt/postgresql@16/bin:$PATH"
 ```
 
-## Setup
+## First-Time Setup
+
+首次拉取项目后执行：
 
 ```bash
 pnpm install
-pnpm db:setup
 pnpm prisma:migrate
-pnpm storage:bucket
 pnpm prisma:seed
 pnpm dev
+```
+
+如果使用 Homebrew PostgreSQL，需要先执行 `pnpm db:setup` 创建本地数据库和用户。Docker 方案在 `docker run` 时已经创建了 `rednote` 用户和数据库，不需要执行 `pnpm db:setup`。
+
+如果后续接入 MinIO 图片上传，再执行：
+
+```bash
+pnpm storage:bucket
+```
+
+## Daily Startup
+
+日常启动项目：
+
+```bash
+docker start rednote-postgres
+cd /Users/liujiang/Desktop/xieyun/rednote
+pnpm dev
+```
+
+确认数据库连接：
+
+```bash
+node --input-type=module -e "import 'dotenv/config'; import pg from 'pg'; const c=new pg.Client({connectionString:process.env.DATABASE_URL}); await c.connect(); const r=await c.query(\"select current_database() as db, current_user as user\"); const e=await c.query(\"select extversion from pg_extension where extname='vector'\"); console.log({connected:true,...r.rows[0], pgvector:e.rows[0]?.extversion}); await c.end();"
 ```
 
 默认开发地址：
@@ -68,7 +117,7 @@ pnpm dev
 
 ## Current Status
 
-当前项目是 MVP 骨架：数据库模型、seed、本地服务脚本、前台页面和后台页面已经就位，但多数页面仍使用 `src/lib/mock-data.ts`。下一步优先把 Feed、详情页、用户页、后台列表切换到 Prisma 查询，再接通登录、注册、发布和上传闭环。
+当前项目已完成 M1 数据接入：Feed、搜索、笔记详情、用户主页和后台列表已切换到 Prisma 查询。开发环境数据库不可达时会临时回退到 `src/lib/mock-data.ts`，避免页面直接 500；数据库启动后自动使用真实数据。下一步优先接通登录、注册、发布和上传闭环。
 
 ## Project Shape
 

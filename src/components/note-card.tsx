@@ -3,16 +3,16 @@ import Link from "next/link";
 import { Bookmark, Heart, MessageCircle } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import type { DemoNote } from "@/lib/mock-data";
+import type { NoteCardData } from "@/lib/content-data";
 
-export function NoteCard({ note }: Readonly<{ note: DemoNote }>) {
+export function NoteCard({ note }: Readonly<{ note: NoteCardData }>) {
   return (
     <article className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
       <Link href={`/notes/${note.id}`} className="block">
         <div className="relative aspect-[4/3] bg-slate-100">
           <Image
             src={note.imageUrl}
-            alt={note.title}
+            alt={note.imageAlt}
             fill
             loading="eager"
             sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"

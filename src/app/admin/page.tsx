@@ -1,7 +1,13 @@
 import { MetricCard } from "@/components/metric-card";
-import { adminMetrics, moderationQueue, topicTrends } from "@/lib/mock-data";
+import { getAdminMetrics, getAdminReports, getTrendingTopics } from "@/lib/content-data";
 
-export default function AdminDashboardPage() {
+export default async function AdminDashboardPage() {
+  const [adminMetrics, moderationQueue, topicTrends] = await Promise.all([
+    getAdminMetrics(),
+    getAdminReports(5),
+    getTrendingTopics(),
+  ]);
+
   return (
     <section className="space-y-6">
       <div>
@@ -37,6 +43,13 @@ export default function AdminDashboardPage() {
                     </td>
                   </tr>
                 ))}
+                {!moderationQueue.length && (
+                  <tr>
+                    <td className="px-4 py-6 text-center text-slate-500" colSpan={3}>
+                      当前没有待处理举报。
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -48,20 +61,22 @@ export default function AdminDashboardPage() {
               <div key={topic.name}>
                 <div className="flex justify-between text-sm">
                   <span className="font-medium text-slate-800">#{topic.name}</span>
-                  <span className="text-slate-500">{topic.growth}</span>
+                  <span className="text-slate-500">{topic.noteCount} 篇</span>
                 </div>
                 <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
                   <div
                     className="h-full rounded-full bg-teal-500"
-                    style={{ width: `${Math.min(topic.heat / 100, 100)}%` }}
+                    style={{ width: `${Math.min(topic.noteCount * 20, 100)}%` }}
                   />
                 </div>
               </div>
             ))}
+            {!topicTrends.length && (
+              <p className="text-sm text-slate-500">暂无标签数据。</p>
+            )}
           </div>
         </section>
       </div>
     </section>
   );
 }
-

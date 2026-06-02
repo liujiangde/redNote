@@ -1,7 +1,7 @@
-import { demoNotes } from "@/lib/mock-data";
+import { getAdminUsers } from "@/lib/content-data";
 
-export default function AdminUsersPage() {
-  const users = demoNotes.map((note) => note.author);
+export default async function AdminUsersPage() {
+  const users = await getAdminUsers();
 
   return (
     <section className="space-y-5">
@@ -19,13 +19,23 @@ export default function AdminUsersPage() {
                 ACTIVE
               </span>
               <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-600">
-                USER
+                {user.role}
               </span>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-slate-500">
+              <span>{user.noteCount} 笔记</span>
+              <span>{user.followerCount} 粉丝</span>
+              <span>{user.followingCount} 关注</span>
+              <span>{user.reportCount} 举报</span>
             </div>
           </article>
         ))}
+        {!users.length && (
+          <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 lg:col-span-3">
+            暂无用户数据。
+          </div>
+        )}
       </div>
     </section>
   );
 }
-

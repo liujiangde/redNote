@@ -4,7 +4,7 @@
 
 ## 项目定位
 
-RedNote Lite 是一个小红书风格的内容社区项目骨架，覆盖前台内容消费、创作者发布、AI 搜索推荐和后台治理。当前重点是把产品主链路跑通，而不是复制完整商业平台的全部能力。
+RedNote Lite 是一个小红书风格的内容社区项目骨架，覆盖前台内容消费、创作者发布、AI 搜索推荐和后台治理。当前重点是把产品主链路跑通，并为后续国际化、多地区运营和移动端 App 做好 API 与数据结构准备。
 
 ## 技术栈
 
@@ -16,6 +16,14 @@ RedNote Lite 是一个小红书风格的内容社区项目骨架，覆盖前台�
 - MinIO/S3 兼容对象存储
 - NextAuth Credentials
 - OpenAI embeddings，可在本地无 API key 时使用确定性 fallback
+
+## 后续扩展方向
+
+- 国际化：优先支持 `zh-CN` 和 `en-US`，将页面文案、错误提示、后台状态文案抽出为统一字典。
+- 移动端 App：建议采用 React Native + Expo，复用 TypeScript 类型、API contract、认证和上传协议。
+- 跨端 API：Web 页面当前以 Server Components 直接读数据为主；移动端接入前需要补齐稳定的 Route Handler 或 BFF API。
+- 跨端通知：站内通知、邮件和移动 Push 应共享通知模板和事件来源。
+- 跨端埋点：Web/App 统一事件名和属性，方便后续分析推荐、搜索和发布转化。
 
 ## 路由结构
 
@@ -67,7 +75,7 @@ RedNote Lite 是一个小红书风格的内容社区项目骨架，覆盖前台�
 
 ## 本地服务
 
-本地开发默认使用 Homebrew 安装的服务：
+本地开发推荐使用 Docker 启动数据库，也可以使用 Homebrew 安装服务：
 
 - PostgreSQL 16：主数据库。
 - pgvector：语义向量扩展。
@@ -75,6 +83,57 @@ RedNote Lite 是一个小红书风格的内容社区项目骨架，覆盖前台�
 - MinIO：S3 兼容对象存储。
 
 默认连接信息在代码中有开发 fallback，生产环境必须使用环境变量覆盖。
+
+## 启动项目
+
+首次启动：
+
+1. 启动 PostgreSQL 16 + pgvector：
+
+   ```bash
+   docker run --name rednote-postgres \
+     -e POSTGRES_USER=rednote \
+     -e POSTGRES_PASSWORD=rednote \
+     -e POSTGRES_DB=rednote \
+     -p 5432:5432 \
+     -v rednote-postgres-data:/var/lib/postgresql/data \
+     -d pgvector/pgvector:0.8.2-pg16
+   ```
+
+2. 安装依赖：
+
+   ```bash
+   pnpm install
+   ```
+
+3. 执行数据库迁移和 seed：
+
+   ```bash
+   pnpm prisma:migrate
+   pnpm prisma:seed
+   ```
+
+4. 启动 Next.js：
+
+   ```bash
+   pnpm dev
+   ```
+
+日常启动：
+
+```bash
+docker start rednote-postgres
+cd /Users/liujiang/Desktop/xieyun/rednote
+pnpm dev
+```
+
+确认数据库连接：
+
+```bash
+node --input-type=module -e "import 'dotenv/config'; import pg from 'pg'; const c=new pg.Client({connectionString:process.env.DATABASE_URL}); await c.connect(); const r=await c.query(\"select current_database() as db, current_user as user\"); const e=await c.query(\"select extversion from pg_extension where extname='vector'\"); console.log({connected:true,...r.rows[0], pgvector:e.rows[0]?.extversion}); await c.end();"
+```
+
+如果数据库端口不可达，页面会临时回退到 fixture 数据，但这只用于避免开发期 500。要验证真实数据链路，必须先启动 PostgreSQL 容器。
 
 ## 关键环境变量
 
@@ -97,22 +156,37 @@ RedNote Lite 是一个小红书风格的内容社区项目骨架，覆盖前台�
 ## 开发流程
 
 1. 安装依赖：`pnpm install`。
-2. 准备本地服务：PostgreSQL、pgvector、Redis、MinIO。
-3. 创建本地数据库和账号：`pnpm db:setup`。
+2. 准备本地服务：PostgreSQL、pgvector，后续上传功能需要 Redis、MinIO。
+3. Docker 数据库首次创建后直接执行迁移；Homebrew PostgreSQL 需要先运行 `pnpm db:setup`。
 4. 执行迁移：`pnpm prisma:migrate`。
-5. 创建对象存储 bucket：`pnpm storage:bucket`。
-6. 写入演示数据：`pnpm prisma:seed`。
-7. 启动应用：`pnpm dev`。
-8. 提交前运行：`pnpm lint` 和 `pnpm typecheck`。
+5. 写入演示数据：`pnpm prisma:seed`。
+6. 启动应用：`pnpm dev`。
+7. 提交前运行：`pnpm lint` 和 `pnpm typecheck`。
 
 ## 当前数据流
 
-当前页面多处仍使用 `src/lib/mock-data.ts`：
+当前页面主流程已经切换到 `src/lib/content-data.ts`：
 
-- Feed、搜索、详情页、用户主页使用 `demoNotes`。
-- 后台指标、趋势标签、举报队列使用 mock 数组。
+- Feed、搜索、详情页、用户主页读取 Prisma 数据。
+- 后台指标、趋势标签、举报队列、笔记列表、用户列表读取真实表。
 
-数据库和 seed 已经准备好，后续应逐步把这些页面切到 Prisma 查询。迁移时建议先保留 mock 数据作为 UI fixture，再新增真实数据服务函数，最后删除页面对 mock 的直接依赖。
+`src/lib/mock-data.ts` 作为 UI fixture 和开发兜底保留：当本地数据库端口不可达时，`content-data.ts` 会临时返回 fixture 数据，避免页面直接 500。数据库启动后会自动使用真实 Prisma 查询。后续新增页面应优先复用或扩展 `content-data.ts` 中的查询函数，避免页面组件直接堆叠复杂 Prisma include。
+
+## 国际化规划
+
+- 路由层建议预留 locale 段，例如 `/zh-CN`、`/en-US`。
+- 静态文案不要继续硬编码到页面组件，后续应迁移到 message dictionary。
+- 日期、数字、热度、粉丝数、相对时间统一走 locale-aware formatter。
+- 内容模型后续需要补充语言字段或翻译表，支持同一笔记多语言展示或按语言过滤。
+- SEO 需要为多语言页面补充 metadata、`hreflang` 和 sitemap 策略。
+
+## 移动端 App 规划
+
+- 技术路线建议：React Native + Expo。
+- 后端需要补齐移动端可调用 API：Feed、详情、搜索、登录、注册、发布、上传、互动、通知。
+- 移动端发布能力要支持图片选择、压缩、上传进度、失败重试和草稿本地保存。
+- 认证不能依赖 Web-only session，需要明确 token 或移动端 session 策略。
+- App 发布后 API 要保持向后兼容，数据库 migration 和接口变更需要版本意识。
 
 ## AI 搜索和推荐
 
