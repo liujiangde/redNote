@@ -24,13 +24,75 @@ RedNote Lite 是一个小红书风格的内容社区项目骨架，覆盖前台�
 - 跨端 API：Web 页面当前以 Server Components 直接读数据为主；移动端接入前需要补齐稳定的 Route Handler 或 BFF API。
 - 跨端通知：站内通知、邮件和移动 Push 应共享通知模板和事件来源。
 - 跨端埋点：Web/App 统一事件名和属性，方便后续分析推荐、搜索和发布转化。
+- 平台化能力：如果目标是接近小红书级 App，还需要逐步补齐视频、直播、电商、私信、创作者工具、商家后台、风控、合规和数据平台。
+
+## 小红书级 App 能力缺口
+
+当前项目更接近“小红书 Lite”内容社区骨架。要演进成完整 App，需要在现有 M1-M9 基础上继续补这些能力：
+
+- 内容发现：推荐瀑布流、关注流、同城/附近、话题、地点、榜单、运营活动和专题页。
+- 原生 App 体验：底部导航、沉浸式详情、评论抽屉、下拉刷新、无限滚动、缓存、弱网恢复。
+- 创作工具：多图、视频、封面、裁剪、滤镜、贴纸、文字、话题、地点、草稿箱、自动保存、上传进度。
+- 生活搜索：搜索建议、热搜、历史搜索、图文/视频/用户/话题/商品分栏、个性化推荐、相似笔记推荐。
+- 社交消息：私信、会话、已读未读、@ 提及、分享、收藏夹分组、拉黑、屏蔽、不感兴趣。
+- 创作者运营：创作者中心、内容表现分析、粉丝增长、发布转化、达人认证、创作者等级和商业合作入口。
+- 电商交易：商品卡片、商品详情、店铺、购物车、订单、支付、退款、售后、优惠券、佣金结算。
+- 直播和活动：直播间、弹幕/评论、直播商品橱窗、直播预约、开播通知、专题页、榜单、任务活动。
+- 平台治理：文本/图片/视频审核、举报申诉、处罚记录、账号风控、刷量识别、设备/IP 风险。
+- 合规和安全：隐私权限、账号注销、数据导出、未成年人保护、内容分级、审计日志。
+- 数据基础设施：曝光、点击、停留、完播、搜索、交易、审核事件；Feature Flag、A/B 测试、Crash 和性能监控。
+
+这些能力不适合一次性塞进当前 MVP。推荐顺序是先完成 M1.5-M6，把认证、发布、互动、搜索推荐、治理、测试和 API contract 做稳，再推进 M10-M12 的平台化能力。
+
+对标时要遵守两个边界：只参考公开产品能力和业务结构，不复刻品牌、UI 资产、专有算法和具体运营内容；先把社区可信度、创作体验和搜索发现做稳，再做电商、直播和复杂商业化。
+
+公开参考来源：
+
+- [小红书 App Store 页面](https://apps.apple.com/cn/app/%E5%B0%8F%E7%BA%A2%E4%B9%A6-%E4%B8%96%E7%95%8C%E6%9D%AF%E7%9B%B4%E6%92%AD/id741292507)：生活兴趣社区、发现、同好互动、记录分享、好物和线下活动。
+- [小红书创作服务平台](https://creator.xiaohongshu.com/)：创作者发布、数据分析和商业变现。
+- [小红书本地生活](https://life.xiaohongshu.com/zhaoshang)：本地生活、商品笔记、探店合作、直播带货和商家经营工具。
+- [小红书蒲公英](https://pgy.xiaohongshu.com/)：博主合作、种草转化数据和品牌商销合作。
+- [小红书灵犀](https://idea.xiaohongshu.com/)：内容洞察、人群洞察、趋势分析和生意度量。
+
+## 近期查漏补缺
+
+M1 已把主要页面切到 Prisma 数据源。进入 M2 前建议先完成 M1.5，避免登录、发布、上传、互动和移动端 API 后续返工：
+
+- 抽出 Web/App 共用 API contract，统一 DTO、错误码、分页格式和版本策略。
+- 明确 Web session、移动端 token/session、管理员 RBAC 的边界。
+- 建立 message dictionary 和 locale-aware formatter，新增页面文案不要继续硬编码到组件。
+- 统一本地服务启动方式，后续补 `docker-compose.yml` 或 `pnpm services:up` 同时启动 PostgreSQL + pgvector、Redis、MinIO。
+- 为上传链路补齐文件类型、大小、尺寸校验，上传完成后写入 `note_images`，并规划孤儿对象清理。
+- 为 Feed、搜索、后台列表补稳定分页和索引检查。
+- 建立最小 CI，至少运行 `pnpm lint` 和 `pnpm typecheck`。
+- 审查 pgvector 相关 migration，涉及 `note_embeddings`、向量索引或 `DROP INDEX` 时必须人工确认。
+- 高并发能力先做架构预留：服务分层、统一 API contract、列表分页、计数事件入口、上传边界和权限边界现在要定好；读写分离、分库分表、复杂缓存、队列和 CDN 优化可以等到 M6 以后结合压测数据推进。
+
+## 并发和容量策略
+
+当前项目是 MVP/小规模试用状态，不能按小红书级并发设计。开发阶段的策略是先避免扩展硬伤，再基于压测和真实流量做重型优化。
+
+现在必须坚持：
+
+- 页面和组件不要直接堆复杂 Prisma 查询，优先通过 `src/lib` 服务层或未来 Route Handler/BFF API 获取数据。
+- Feed、搜索、用户主页、后台列表默认要有分页能力，避免后续数据量增长后重写接口。
+- 浏览量、曝光、点赞、收藏、搜索日志等计数和行为事件要通过统一入口写入，未来可替换为 Redis 聚合或队列异步消费。
+- 搜索 UI 和接口不要绑定单一查询实现，后续可以从关键词检索切换到全文索引、pgvector 或独立搜索服务。
+- 图片、视频和附件坚持对象存储/预签名 URL，不把上传资源写进应用本地目录。
+- 权限判断集中在服务/API 边界，避免后续加缓存或移动端 API 时出现越权风险。
+
+可以后置到 M6/M9/M12 再做：
+
+- Redis 大规模缓存策略、PgBouncer、读写分离、队列系统、CDN 优化、分布式部署、A/B 实验和必要时的分库分表。
+- 生产压测和容量评估应使用 `pnpm build && pnpm start` 的生产构建，而不是 `pnpm dev`。
+- 容量优化要基于 RPS、P95/P99、错误率、数据库连接数、慢查询、缓存命中率和队列积压数据推进。
 
 ## 路由结构
 
 | 路由 | 文件 | 说明 |
 | --- | --- | --- |
 | `/` | `src/app/(site)/page.tsx` | 推荐 Feed 和趋势话题 |
-| `/search` | `src/app/(site)/search/page.tsx` | 搜索结果页，目前展示 mock 数据 |
+| `/search` | `src/app/(site)/search/page.tsx` | 搜索结果页，已接入 Prisma 关键词查询 |
 | `/publish` | `src/app/(site)/publish/page.tsx` | 发布表单骨架 |
 | `/notes/[noteId]` | `src/app/(site)/notes/[noteId]/page.tsx` | 笔记详情页 |
 | `/users/[handle]` | `src/app/(site)/users/[handle]/page.tsx` | 用户主页 |
@@ -73,6 +135,19 @@ RedNote Lite 是一个小红书风格的内容社区项目骨架，覆盖前台�
 - `AdminAuditLog`：后台操作审计。
 - `NoteEmbedding`：笔记语义向量，用于语义搜索和推荐。
 
+长期对标完整 App 时，数据模型还需要扩展到更多业务域，例如：
+
+- `MediaAsset`：统一管理图片、视频、封面、转码状态和对象存储 key。
+- `Topic`、`Location`、`Campaign`：话题、地点、运营专题和活动。
+- `Conversation`、`Message`：私信和会话。
+- `DeviceToken`：移动端 Push 和设备维度风控。
+- `Product`、`Shop`、`CartItem`、`Order`、`Payment`、`Refund`：电商交易。
+- `Coupon`、`Promotion`、`CreatorPayout`：优惠券、营销投放和达人结算。
+- `LiveRoom`、`LiveMessage`、`LiveProduct`：直播和直播带货。
+- `ModerationCase`、`Appeal`、`RiskSignal`：审核、申诉和风控。
+- `AnalyticsEvent`：曝光、点击、停留、搜索、互动、交易和审核事件。
+- `CreatorProfile`、`CreatorMetric`、`CreatorLevel`：创作者资料、数据看板和成长等级。
+
 ## 本地服务
 
 本地开发推荐使用 Docker 启动数据库，也可以使用 Homebrew 安装服务：
@@ -83,6 +158,8 @@ RedNote Lite 是一个小红书风格的内容社区项目骨架，覆盖前台�
 - MinIO：S3 兼容对象存储。
 
 默认连接信息在代码中有开发 fallback，生产环境必须使用环境变量覆盖。
+
+后续建议把这些服务收敛到一个统一启动入口，例如 `docker-compose.yml` 或 `pnpm services:up`。这样 M2 的上传、M3 的限流/通知、M4 的推荐缓存都可以在同一套本地环境里验证。
 
 ## 启动项目
 
@@ -163,6 +240,10 @@ node --input-type=module -e "import 'dotenv/config'; import pg from 'pg'; const 
 6. 启动应用：`pnpm dev`。
 7. 提交前运行：`pnpm lint` 和 `pnpm typecheck`。
 
+涉及 Prisma migration 时，先检查生成的 SQL 再提交。尤其是 `note_embeddings`、pgvector 索引、`DROP INDEX` 相关变更，不能只因为 Prisma 自动生成就直接入库。
+
+涉及高并发相关实现时，不要在当前阶段过早引入重型架构；优先保证接口可分页、可缓存、可异步化，等 M6 的压测结果出来后再决定是否需要连接池、读写分离、队列或 CDN 方案。
+
 ## 当前数据流
 
 当前页面主流程已经切换到 `src/lib/content-data.ts`：
@@ -171,6 +252,8 @@ node --input-type=module -e "import 'dotenv/config'; import pg from 'pg'; const 
 - 后台指标、趋势标签、举报队列、笔记列表、用户列表读取真实表。
 
 `src/lib/mock-data.ts` 作为 UI fixture 和开发兜底保留：当本地数据库端口不可达时，`content-data.ts` 会临时返回 fixture 数据，避免页面直接 500。数据库启动后会自动使用真实 Prisma 查询。后续新增页面应优先复用或扩展 `content-data.ts` 中的查询函数，避免页面组件直接堆叠复杂 Prisma include。
+
+当前核心读链路还没有正式缓存，详情页浏览量仍是同步数据库递增，搜索仍是简单关键词查询。这些实现适合 MVP，不适合大流量公开访问；后续优化时应优先处理缓存、分页、浏览量聚合和搜索索引。
 
 ## 国际化规划
 
@@ -184,9 +267,11 @@ node --input-type=module -e "import 'dotenv/config'; import pg from 'pg'; const 
 
 - 技术路线建议：React Native + Expo。
 - 后端需要补齐移动端可调用 API：Feed、详情、搜索、登录、注册、发布、上传、互动、通知。
+- 移动端接入前先定义统一 API contract：响应 envelope、错误码、分页 cursor、认证头、版本字段和 DTO 类型。
 - 移动端发布能力要支持图片选择、压缩、上传进度、失败重试和草稿本地保存。
 - 认证不能依赖 Web-only session，需要明确 token 或移动端 session 策略。
 - App 发布后 API 要保持向后兼容，数据库 migration 和接口变更需要版本意识。
+- 如果继续对标完整 App，移动端还要补视频播放/发布、原生 Push、私信、直播、购物车、订单、支付、客服反馈和 Crash 监控。
 
 ## AI 搜索和推荐
 
