@@ -116,6 +116,7 @@ M1.5 基础版已经落地：
 | `/api/health` | `src/app/api/health/route.ts` | 环境状态检查 |
 | `/api/v1/feed` | `src/app/api/v1/feed/route.ts` | 跨端 Feed API 预留 |
 | `/api/v1/search` | `src/app/api/v1/search/route.ts` | 跨端搜索 API 预留 |
+| `/api/v1/uploads` | `src/app/api/v1/uploads/route.ts` | 登录用户图片预签名上传 |
 
 `(site)` 和 `(auth)` 是 App Router route group，不会出现在 URL 中。页面和布局默认是 Server Components，需要浏览器状态或事件处理时再添加 `"use client"`。
 
@@ -262,6 +263,18 @@ node --input-type=module -e "import 'dotenv/config'; import pg from 'pg'; const 
 当前核心读链路还没有正式缓存，详情页浏览量仍是同步数据库递增，搜索仍是简单关键词查询。这些实现适合 MVP，不适合大流量公开访问；后续优化时应优先处理缓存、分页、浏览量聚合和搜索索引。
 
 跨端 API 基础约定已经在 `src/lib/api-contract.ts` 中定义。当前 `/api/v1/feed` 和 `/api/v1/search` 返回统一 `ok/version/data` envelope 和 `pageInfo`，但 cursor 还只是结构预留；真实 cursor 查询会在 M4 推荐/搜索阶段补齐。
+
+## 当前写入流程
+
+M2 基础版已经接通：
+
+- 登录：`src/app/(auth)/login/login-form.tsx` 调用 NextAuth Credentials，服务端在 `src/lib/auth.ts` 校验密码并写入 session。
+- 注册：`src/app/(auth)/register/actions.ts` 使用 Server Action 校验邮箱、用户名和密码，创建用户后跳转登录。
+- 发布：`src/app/(site)/publish/actions.ts` 使用 Server Action 校验登录态和表单字段，写入 `Note`、`NoteImage`、`Tag` 和 `note_embeddings`。
+- 上传：`src/app/api/v1/uploads/route.ts` 为登录用户签发短期上传 URL，客户端直传 MinIO/S3，发布提交时再保存图片 URL。
+- 权限：`src/lib/auth-boundary.ts` 集中处理用户和管理员 session；`/publish` 要求登录，`/admin` 要求管理员角色。
+
+后续增强点：MinIO CORS、孤儿对象清理、上传进度恢复、移动端 token/session、发布草稿列表和图片 metadata 尺寸识别。
 
 ## 国际化规划
 

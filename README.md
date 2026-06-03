@@ -100,7 +100,10 @@ node --input-type=module -e "import 'dotenv/config'; import pg from 'pg'; const 
 
 - 管理员：`admin@rednote.local` / `rednote123`
 - 用户：`alan@rednote.local` / `rednote123`
-
+admin@rednote.local / rednote123
+alan@rednote.local / rednote123
+taro@rednote.local / rednote123
+nanqiao@rednote.local / rednote123
 ## Scripts
 
 - `pnpm dev` 启动开发服务
@@ -118,12 +121,13 @@ node --input-type=module -e "import 'dotenv/config'; import pg from 'pg'; const 
 
 ## Current Status
 
-当前项目已完成 M1 和 M1.5 基础版：Feed、搜索、笔记详情、用户主页和后台列表已切换到 Prisma 查询；跨端 API contract、Feed/Search API 预留、i18n 字典、权限边界、Docker Compose、migration 审查和 CI 已落地。下一步进入 M2，优先接通登录、注册、发布和上传闭环。
+当前项目已完成 M1、M1.5 和 M2 基础版：Feed、搜索、笔记详情、用户主页和后台列表已切换到 Prisma 查询；跨端 API contract、i18n 字典、权限边界、Docker Compose、migration 审查和 CI 已落地；登录、注册、发布、预签名上传和 `/publish`、`/admin` 权限保护已接通。下一步进入 M3，优先实现点赞、收藏、评论和通知闭环。
 
 ## Project Shape
 
 - `src/app/(site)` C 端页面：Feed、搜索、发布、笔记详情、用户主页
 - `src/app/admin` 管理后台：数据看板、笔记、举报、用户
+- `src/app/api/v1` 跨端 API：Feed、搜索、图片预签名上传
 - `src/lib` 数据库、鉴权、缓存、对象存储、AI embedding、推荐评分
 - `src/lib/api-contract.ts` 跨端 API envelope、错误码和分页结构
 - `src/lib/i18n.ts` 国际化字典和基础格式化

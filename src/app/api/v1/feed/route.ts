@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const notes = await getHomeFeedNotes({ limit: pagination.value.limit });
+  const notes = await getHomeFeedNotes({ limit: pagination.value.limit + 1 });
 
   return apiSuccess(
     createCursorPage(notes, {

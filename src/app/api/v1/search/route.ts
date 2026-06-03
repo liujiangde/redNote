@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
   }
 
   const notes = await searchPublishedNotes(request.nextUrl.searchParams.get("q") ?? undefined, {
-    limit: pagination.value.limit,
+    limit: pagination.value.limit + 1,
   });
 
   return apiSuccess(
