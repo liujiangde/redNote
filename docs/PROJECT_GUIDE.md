@@ -68,6 +68,16 @@ M1 已把主要页面切到 Prisma 数据源。进入 M2 前建议先完成 M1.5
 - 审查 pgvector 相关 migration，涉及 `note_embeddings`、向量索引或 `DROP INDEX` 时必须人工确认。
 - 高并发能力先做架构预留：服务分层、统一 API contract、列表分页、计数事件入口、上传边界和权限边界现在要定好；读写分离、分库分表、复杂缓存、队列和 CDN 优化可以等到 M6 以后结合压测数据推进。
 
+M1.5 基础版已经落地：
+
+- `src/lib/api-contract.ts`：统一 API envelope、错误码和 cursor pagination 结构。
+- `src/app/api/v1/feed/route.ts`、`src/app/api/v1/search/route.ts`：移动端/BFF API 预留入口。
+- `src/lib/auth-boundary.ts`：用户和管理员权限边界。
+- `src/lib/i18n.ts`：`zh-CN`、`en-US` message dictionary 和基础 formatter。
+- `docker-compose.yml`、`pnpm services:up`：PostgreSQL + pgvector、Redis、MinIO 一组命令启动。
+- `scripts/check-migrations.ts`、`pnpm migration:check`：pgvector 相关破坏性 migration 审查。
+- `.github/workflows/ci.yml`：GitHub Actions 运行 migration check、lint、typecheck。
+
 ## 并发和容量策略
 
 当前项目是 MVP/小规模试用状态，不能按小红书级并发设计。开发阶段的策略是先避免扩展硬伤，再基于压测和真实流量做重型优化。
@@ -104,6 +114,8 @@ M1 已把主要页面切到 Prisma 数据源。进入 M2 前建议先完成 M1.5
 | `/admin/users` | `src/app/admin/users/page.tsx` | 用户管理 |
 | `/api/auth/[...nextauth]` | `src/app/api/auth/[...nextauth]/route.ts` | NextAuth handler |
 | `/api/health` | `src/app/api/health/route.ts` | 环境状态检查 |
+| `/api/v1/feed` | `src/app/api/v1/feed/route.ts` | 跨端 Feed API 预留 |
+| `/api/v1/search` | `src/app/api/v1/search/route.ts` | 跨端搜索 API 预留 |
 
 `(site)` 和 `(auth)` 是 App Router route group，不会出现在 URL 中。页面和布局默认是 Server Components，需要浏览器状态或事件处理时再添加 `"use client"`。
 
@@ -159,22 +171,16 @@ M1 已把主要页面切到 Prisma 数据源。进入 M2 前建议先完成 M1.5
 
 默认连接信息在代码中有开发 fallback，生产环境必须使用环境变量覆盖。
 
-后续建议把这些服务收敛到一个统一启动入口，例如 `docker-compose.yml` 或 `pnpm services:up`。这样 M2 的上传、M3 的限流/通知、M4 的推荐缓存都可以在同一套本地环境里验证。
+本地服务已收敛到 `docker-compose.yml` 和 `pnpm services:up`。这样 M2 的上传、M3 的限流/通知、M4 的推荐缓存都可以在同一套本地环境里验证。
 
 ## 启动项目
 
 首次启动：
 
-1. 启动 PostgreSQL 16 + pgvector：
+1. 启动 PostgreSQL 16 + pgvector、Redis、MinIO：
 
    ```bash
-   docker run --name rednote-postgres \
-     -e POSTGRES_USER=rednote \
-     -e POSTGRES_PASSWORD=rednote \
-     -e POSTGRES_DB=rednote \
-     -p 5432:5432 \
-     -v rednote-postgres-data:/var/lib/postgresql/data \
-     -d pgvector/pgvector:0.8.2-pg16
+   pnpm services:up
    ```
 
 2. 安装依赖：
@@ -199,7 +205,7 @@ M1 已把主要页面切到 Prisma 数据源。进入 M2 前建议先完成 M1.5
 日常启动：
 
 ```bash
-docker start rednote-postgres
+pnpm services:up
 cd /Users/liujiang/Desktop/xieyun/rednote
 pnpm dev
 ```
@@ -238,9 +244,9 @@ node --input-type=module -e "import 'dotenv/config'; import pg from 'pg'; const 
 4. 执行迁移：`pnpm prisma:migrate`。
 5. 写入演示数据：`pnpm prisma:seed`。
 6. 启动应用：`pnpm dev`。
-7. 提交前运行：`pnpm lint` 和 `pnpm typecheck`。
+7. 提交前运行：`pnpm run ci`。
 
-涉及 Prisma migration 时，先检查生成的 SQL 再提交。尤其是 `note_embeddings`、pgvector 索引、`DROP INDEX` 相关变更，不能只因为 Prisma 自动生成就直接入库。
+涉及 Prisma migration 时，先运行 `pnpm migration:check` 并检查生成的 SQL 再提交。尤其是 `note_embeddings`、pgvector 索引、`DROP INDEX` 相关变更，不能只因为 Prisma 自动生成就直接入库。
 
 涉及高并发相关实现时，不要在当前阶段过早引入重型架构；优先保证接口可分页、可缓存、可异步化，等 M6 的压测结果出来后再决定是否需要连接池、读写分离、队列或 CDN 方案。
 
@@ -254,6 +260,8 @@ node --input-type=module -e "import 'dotenv/config'; import pg from 'pg'; const 
 `src/lib/mock-data.ts` 作为 UI fixture 和开发兜底保留：当本地数据库端口不可达时，`content-data.ts` 会临时返回 fixture 数据，避免页面直接 500。数据库启动后会自动使用真实 Prisma 查询。后续新增页面应优先复用或扩展 `content-data.ts` 中的查询函数，避免页面组件直接堆叠复杂 Prisma include。
 
 当前核心读链路还没有正式缓存，详情页浏览量仍是同步数据库递增，搜索仍是简单关键词查询。这些实现适合 MVP，不适合大流量公开访问；后续优化时应优先处理缓存、分页、浏览量聚合和搜索索引。
+
+跨端 API 基础约定已经在 `src/lib/api-contract.ts` 中定义。当前 `/api/v1/feed` 和 `/api/v1/search` 返回统一 `ok/version/data` envelope 和 `pageInfo`，但 cursor 还只是结构预留；真实 cursor 查询会在 M4 推荐/搜索阶段补齐。
 
 ## 国际化规划
 

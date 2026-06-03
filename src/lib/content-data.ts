@@ -331,8 +331,10 @@ function toNoteDetail(note: NoteDetailRecord, viewCount: number): NoteDetailData
   };
 }
 
-export async function getHomeFeedNotes() {
+export async function getHomeFeedNotes(options: { limit?: number } = {}) {
   await connection();
+
+  const limit = options.limit ?? 24;
 
   return withDatabaseFallback(
     async () => {
@@ -344,19 +346,23 @@ export async function getHomeFeedNotes() {
         },
         include: noteCardInclude,
         orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
-        take: 24,
+        take: limit,
       });
 
       return notes.map(toNoteCard);
     },
-    getFixtureNotes,
+    () => getFixtureNotes().slice(0, limit),
   );
 }
 
-export async function searchPublishedNotes(query: string | undefined) {
+export async function searchPublishedNotes(
+  query: string | undefined,
+  options: { limit?: number } = {},
+) {
   await connection();
 
   const keyword = query?.trim();
+  const limit = options.limit ?? 24;
 
   return withDatabaseFallback(
     async () => {
@@ -387,7 +393,7 @@ export async function searchPublishedNotes(query: string | undefined) {
         },
         include: noteCardInclude,
         orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
-        take: 24,
+        take: limit,
       });
 
       return notes.map(toNoteCard);
@@ -396,7 +402,7 @@ export async function searchPublishedNotes(query: string | undefined) {
       const fixtureNotes = getFixtureNotes();
 
       if (!keyword) {
-        return fixtureNotes;
+        return fixtureNotes.slice(0, limit);
       }
 
       return fixtureNotes.filter((note) => {
@@ -411,7 +417,7 @@ export async function searchPublishedNotes(query: string | undefined) {
           .toLowerCase();
 
         return searchText.includes(keyword.toLowerCase());
-      });
+      }).slice(0, limit);
     },
   );
 }

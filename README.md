@@ -19,28 +19,23 @@ RedNote Lite 是一个面向作品集和后续扩展的 C 端社区项目骨架�
 
 ## Local Services
 
-推荐使用 Docker 启动带 pgvector 的 PostgreSQL 16：
+推荐使用 Docker Compose 一次性启动 PostgreSQL 16 + pgvector、Redis、MinIO：
 
 ```bash
-docker run --name rednote-postgres \
-  -e POSTGRES_USER=rednote \
-  -e POSTGRES_PASSWORD=rednote \
-  -e POSTGRES_DB=rednote \
-  -p 5432:5432 \
-  -v rednote-postgres-data:/var/lib/postgresql/data \
-  -d pgvector/pgvector:0.8.2-pg16
+pnpm services:up
 ```
 
-如果容器已经创建过，日常只需要启动它：
+如果之前已经手动创建过占用 `5432` 的 `rednote-postgres` 容器，需要先停止它，再使用 Compose：
 
 ```bash
-docker start rednote-postgres
+docker stop rednote-postgres
+pnpm services:up
 ```
 
 验证数据库和 pgvector：
 
 ```bash
-docker exec -it rednote-postgres psql -U rednote -d rednote \
+docker compose exec postgres psql -U rednote -d rednote \
   -c "CREATE EXTENSION IF NOT EXISTS vector; SELECT extversion FROM pg_extension WHERE extname = 'vector';"
 ```
 
@@ -65,6 +60,7 @@ export PATH="/opt/homebrew/opt/postgresql@16/bin:$PATH"
 
 ```bash
 pnpm install
+pnpm services:up
 pnpm prisma:migrate
 pnpm prisma:seed
 pnpm dev
@@ -83,7 +79,7 @@ pnpm storage:bucket
 日常启动项目：
 
 ```bash
-docker start rednote-postgres
+pnpm services:up
 cd /Users/liujiang/Desktop/xieyun/rednote
 pnpm dev
 ```
@@ -108,8 +104,13 @@ node --input-type=module -e "import 'dotenv/config'; import pg from 'pg'; const 
 ## Scripts
 
 - `pnpm dev` 启动开发服务
+- `pnpm services:up` 启动 PostgreSQL + pgvector、Redis、MinIO
+- `pnpm services:down` 停止本地 Docker Compose 服务
+- `pnpm services:logs` 查看本地服务日志
+- `pnpm run ci` 运行 migration 审查、ESLint 和 TypeScript 检查
 - `pnpm lint` 运行 ESLint
 - `pnpm typecheck` 生成 Prisma Client 并运行 TypeScript 检查
+- `pnpm migration:check` 检查 pgvector 相关危险 migration
 - `pnpm db:setup` 创建本地 `rednote` 数据库和用户
 - `pnpm prisma:migrate` 执行 Prisma migration
 - `pnpm storage:bucket` 创建 MinIO bucket
@@ -117,12 +118,14 @@ node --input-type=module -e "import 'dotenv/config'; import pg from 'pg'; const 
 
 ## Current Status
 
-当前项目已完成 M1 数据接入：Feed、搜索、笔记详情、用户主页和后台列表已切换到 Prisma 查询。开发环境数据库不可达时会临时回退到 `src/lib/mock-data.ts`，避免页面直接 500；数据库启动后自动使用真实数据。下一步优先接通登录、注册、发布和上传闭环。
+当前项目已完成 M1 和 M1.5 基础版：Feed、搜索、笔记详情、用户主页和后台列表已切换到 Prisma 查询；跨端 API contract、Feed/Search API 预留、i18n 字典、权限边界、Docker Compose、migration 审查和 CI 已落地。下一步进入 M2，优先接通登录、注册、发布和上传闭环。
 
 ## Project Shape
 
 - `src/app/(site)` C 端页面：Feed、搜索、发布、笔记详情、用户主页
 - `src/app/admin` 管理后台：数据看板、笔记、举报、用户
 - `src/lib` 数据库、鉴权、缓存、对象存储、AI embedding、推荐评分
+- `src/lib/api-contract.ts` 跨端 API envelope、错误码和分页结构
+- `src/lib/i18n.ts` 国际化字典和基础格式化
 - `prisma/schema.prisma` 社区业务模型和 `note_embeddings`
 - `prisma/migrations/000001_init` PostgreSQL + pgvector 初始迁移

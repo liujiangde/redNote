@@ -11,12 +11,17 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "prisma generate && next typegen && tsc --noEmit",
+    "ci": "pnpm migration:check && pnpm lint && pnpm typecheck",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "prisma generate && prisma db seed",
+    "migration:check": "tsx scripts/check-migrations.ts",
     "db:reset": "prisma migrate reset",
     "db:setup": "tsx scripts/setup-local-db.ts",
-    "storage:bucket": "tsx scripts/setup-minio.ts"
+    "storage:bucket": "tsx scripts/setup-minio.ts",
+    "services:up": "docker compose up -d postgres redis minio",
+    "services:down": "docker compose down",
+    "services:logs": "docker compose logs -f"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
