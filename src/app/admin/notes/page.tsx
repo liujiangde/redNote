@@ -1,6 +1,7 @@
 import { getAdminNotes } from "@/lib/content-data";
 
 export default async function AdminNotesPage() {
+  // 笔记管理页读取最近内容和推荐分，用于审核巡检；状态流转后续要单独加权限和审计。
   const notes = await getAdminNotes();
 
   return (

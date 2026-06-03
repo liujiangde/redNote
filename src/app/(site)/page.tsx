@@ -5,6 +5,8 @@ import { NoteCard } from "@/components/note-card";
 import { getAdminMetrics, getHomeFeedNotes, getTrendingTopics } from "@/lib/content-data";
 
 export default async function HomePage() {
+  // 首页同时展示 Feed、趋势话题和运营指标；并行读取可以减少首屏等待。
+  // 数据查询和数据库不可达 fallback 都封装在 content-data.ts，页面只负责布局。
   const [notes, topicTrends, adminMetrics] = await Promise.all([
     getHomeFeedNotes(),
     getTrendingTopics(),

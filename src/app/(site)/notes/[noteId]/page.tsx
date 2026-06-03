@@ -11,6 +11,7 @@ export default async function NoteDetailPage({
   params: Promise<{ noteId: string }>;
 }) {
   const { noteId } = await params;
+  // 详情页只允许展示已发布笔记；服务层会同时支持 id/slug 查询并处理浏览量。
   const note = await getPublishedNoteDetail(noteId);
 
   if (!note) {

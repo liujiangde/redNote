@@ -10,6 +10,8 @@ export default async function UserProfilePage({
   params: Promise<{ handle: string }>;
 }) {
   const { handle } = await params;
+  // 用户主页按 handle 聚合公开资料、作品列表和关注/粉丝统计。
+  // 未找到用户时走 notFound，让 Next.js 统一渲染 404。
   const user = await getUserProfile(handle);
 
   if (!user) {

@@ -28,6 +28,8 @@ function demoVector(seed: string) {
 }
 
 async function main() {
+  // Seed 以“可重复初始化”为目标：先按外键依赖顺序清空旧数据，再写入
+  // 用户、内容、互动、举报、通知和 embedding，保证每次本地演示状态一致。
   await prisma.$executeRawUnsafe(`DELETE FROM "note_embeddings"`);
   await prisma.adminAuditLog.deleteMany();
   await prisma.report.deleteMany();
@@ -44,6 +46,8 @@ async function main() {
 
   const passwordHash = await hash("rednote123", 10);
 
+  // 账号数据覆盖管理员和普通创作者，用同一密码降低本地登录测试成本；
+  // 生产环境绝不能复用这些默认账号和密码。
   const admin = await prisma.user.create({
     data: {
       email: "admin@rednote.local",
@@ -107,6 +111,7 @@ async function main() {
 
   const tagByName = new Map(tags.map((tag) => [tag.name, tag]));
 
+  // 笔记 seed 覆盖图文、标签和作者关系，驱动首页 Feed、搜索、详情页和用户主页。
   const notes = await Promise.all([
     prisma.note.create({
       data: {
@@ -184,6 +189,7 @@ async function main() {
     }),
   ]);
 
+  // 社区关系和互动数据用于验证关注数、点赞数、收藏数、评论数和后台互动指标。
   await prisma.follow.createMany({
     data: [
       { followerId: alan.id, followingId: nanqiao.id },
@@ -217,6 +223,7 @@ async function main() {
     },
   });
 
+  // 治理和通知数据用于让后台举报队列、站内通知和审计日志在空项目中也能展示。
   await prisma.report.create({
     data: {
       reporterId: admin.id,
@@ -251,6 +258,8 @@ async function main() {
 
   for (const note of notes) {
     const sourceText = `${note.title}\n${note.content}`;
+    // Prisma schema 里 embedding 是 Unsupported("vector(1536)")，所以这里保留
+    // raw SQL upsert。后续真实发布流程也需要通过受控封装写入 pgvector。
     await prisma.$executeRawUnsafe(
       `INSERT INTO "note_embeddings" ("note_id", "embedding", "source_text", "updated_at")
        VALUES ($1, $2::vector, $3, NOW())

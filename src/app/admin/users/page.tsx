@@ -1,6 +1,7 @@
 import { getAdminUsers } from "@/lib/content-data";
 
 export default async function AdminUsersPage() {
+  // 用户管理页聚合账号角色、内容贡献和被举报数，供管理员识别治理风险。
   const users = await getAdminUsers();
 
   return (

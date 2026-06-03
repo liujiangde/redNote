@@ -3,6 +3,8 @@ import { ImagePlus, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export default function PublishPage() {
+  // 当前是发布流程的 UI 骨架。M2 接入真实提交后，流程应为：
+  // 登录校验 -> 表单校验 -> 预签名上传图片 -> 写入 Note/NoteImage/Tag -> 生成 embedding。
   return (
     <section className="mx-auto max-w-3xl rounded-lg border border-slate-200 bg-white p-5">
       <div className="flex items-center justify-between border-b border-slate-100 pb-4">
@@ -34,4 +36,3 @@ export default function PublishPage() {
     </section>
   );
 }
-

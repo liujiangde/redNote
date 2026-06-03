@@ -2,6 +2,8 @@ import { MetricCard } from "@/components/metric-card";
 import { getAdminMetrics, getAdminReports, getTrendingTopics } from "@/lib/content-data";
 
 export default async function AdminDashboardPage() {
+  // 后台首页聚合运营指标、举报队列和热门标签。当前是只读看板；
+  // 后续审核/封禁等写操作必须走单独服务并写 AdminAuditLog。
   const [adminMetrics, moderationQueue, topicTrends] = await Promise.all([
     getAdminMetrics(),
     getAdminReports(5),

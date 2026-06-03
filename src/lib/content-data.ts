@@ -16,6 +16,10 @@ import {
   topicTrends as fixtureTopicTrends,
 } from "@/lib/mock-data";
 
+// 当前 Web 页面共用的内容读模型层：
+// 1. 页面只关心已经整理好的展示 DTO。
+// 2. Prisma 查询、fixture fallback、字段裁剪和计数口径都集中在这里。
+// 3. 后续接入 Route Handler/BFF、Redis 缓存或移动端 API 时，优先从这里拆服务。
 const DEFAULT_NOTE_IMAGE =
   "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=900&q=80";
 const DEFAULT_AVATAR_URL =
@@ -30,6 +34,8 @@ let databaseReachability:
   | undefined;
 let databaseReachabilityPromise: Promise<boolean> | undefined;
 
+// 笔记卡片只取列表页需要展示的字段，避免页面层直接暴露复杂 include。
+// 详情页、搜索页、后台笔记列表都复用这个结构，保证互动数和作者字段口径一致。
 const noteCardInclude = {
   author: {
     select: {
@@ -66,6 +72,7 @@ const noteCardInclude = {
   },
 } satisfies Prisma.NoteInclude;
 
+// 详情页需要完整图片列表，所以在卡片 include 的基础上放开 images.take 限制。
 const noteDetailInclude = {
   ...noteCardInclude,
   images: {
@@ -187,6 +194,8 @@ function calculateNoteScore(note: Pick<NoteCardRecord, "viewCount" | "_count">) 
   return Math.min(100, Math.round(note.viewCount / 300 + interactions * 5));
 }
 
+// 本地开发时 PostgreSQL 可能还没启动；只有连接类错误才进入 fixture fallback，
+// 业务错误仍然抛出，避免真实 bug 被示例数据掩盖。
 function isDatabaseUnavailable(error: unknown) {
   if (typeof error !== "object" || error === null) {
     return false;
@@ -214,6 +223,8 @@ async function withDatabaseFallback<T>(query: () => Promise<T>, fallback: () => 
   }
 }
 
+// 在真正执行 Prisma 查询前先做一次轻量 TCP 探测，避免数据库关闭时每个页面
+// 都刷出 Prisma 连接错误。TTL 很短，只服务于开发期兜底，不作为生产健康检查。
 function getDatabaseConnectionTarget() {
   const connectionString =
     process.env.DATABASE_URL ??
@@ -325,6 +336,8 @@ export async function getHomeFeedNotes() {
 
   return withDatabaseFallback(
     async () => {
+      // 首页 Feed 只展示已发布内容。当前按发布时间倒序，后续推荐流可以在
+      // 这个入口接入 Redis 候选池、推荐分排序或个性化过滤。
       const notes = await db.note.findMany({
         where: {
           status: NoteStatus.PUBLISHED,
@@ -347,6 +360,8 @@ export async function searchPublishedNotes(query: string | undefined) {
 
   return withDatabaseFallback(
     async () => {
+      // 第一版搜索覆盖标题、正文、作者和标签，保持查询结果仍然只返回公开内容。
+      // 后续生活搜索可以在这里替换为全文索引、pgvector 语义召回或搜索服务。
       const notes = await db.note.findMany({
         where: {
           status: NoteStatus.PUBLISHED,
@@ -406,6 +421,7 @@ export async function getPublishedNoteDetail(noteIdOrSlug: string) {
 
   return withDatabaseFallback(
     async () => {
+      // 详情页允许用 id 或 slug 打开，但只展示已发布笔记，隐藏/草稿不对外暴露。
       const note = await db.note.findFirst({
         where: {
           status: NoteStatus.PUBLISHED,
@@ -418,6 +434,8 @@ export async function getPublishedNoteDetail(noteIdOrSlug: string) {
         return null;
       }
 
+      // MVP 阶段直接递增浏览量。进入公开测试前应替换为 Redis 聚合或去重计数，
+      // 避免热点笔记每次访问都产生数据库写入竞争。
       const updated = await db.note.update({
         where: {
           id: note.id,
@@ -455,6 +473,8 @@ export async function getUserProfile(handle: string) {
 
   return withDatabaseFallback(
     async () => {
+      // 用户主页按 handle 查公开资料和已发布作品。后续作品增多后，这里需要
+      // 改为 cursor pagination，避免一次拉取该用户全部笔记。
       const user = await db.user.findUnique({
         where: {
           handle,
@@ -521,6 +541,8 @@ export async function getTrendingTopics(limit = 5) {
 
   return withDatabaseFallback(
     async () => {
+      // 趋势话题当前用标签关联笔记数量近似热度；后续可叠加搜索量、曝光、
+      // 互动增长和运营活动权重。
       const tags = await db.tag.findMany({
         select: {
           name: true,
@@ -558,6 +580,8 @@ export async function getAdminMetrics() {
 
   return withDatabaseFallback(
     async () => {
+      // 后台看板读取实时 count，适合 MVP 和小规模试用。数据量变大后应改为
+      // 定时聚合或缓存，避免管理员每次打开页面触发多次全局统计。
       const [userCount, publishedNoteCount, openReportCount, likeCount, favoriteCount, commentCount] =
         await Promise.all([
           db.user.count(),
@@ -592,6 +616,8 @@ export async function getAdminNotes() {
 
   return withDatabaseFallback(
     async () => {
+      // 笔记管理页展示最近更新内容，管理员后续在这里处理隐藏、归档、恢复
+      // 和推荐分巡检。写操作必须另走带审计日志的管理服务。
       const notes = await db.note.findMany({
         include: noteCardInclude,
         orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
@@ -653,6 +679,8 @@ export async function getAdminReports(limit = 50) {
 
   return withDatabaseFallback(
     async () => {
+      // 举报列表把不同目标类型统一压成一行展示数据，方便后台队列先跑起来；
+      // 详情、状态流转和处理历史后续应拆到独立治理服务。
       const reports = await db.report.findMany({
         include: {
           reporter: {
@@ -709,6 +737,8 @@ export async function getAdminUsers() {
 
   return withDatabaseFallback(
     async () => {
+      // 用户管理页先聚合账号角色、内容贡献和被举报数量。封禁、角色变更等
+      // 修改类操作后续必须集中校验权限并写入 AdminAuditLog。
       const users = await db.user.findMany({
         include: {
           _count: {

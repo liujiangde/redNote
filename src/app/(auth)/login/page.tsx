@@ -3,6 +3,8 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 
 export default function LoginPage() {
+  // 当前页面只渲染登录表单。真实登录要在客户端提交到 NextAuth，
+  // 服务端 authorize 会校验邮箱、密码和用户角色，并把最小身份写入 session。
   return (
     <main className="grid min-h-screen place-items-center bg-stone-50 px-4">
       <section className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
@@ -37,4 +39,3 @@ export default function LoginPage() {
     </main>
   );
 }
-

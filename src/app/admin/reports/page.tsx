@@ -1,6 +1,7 @@
 import { getAdminReports } from "@/lib/content-data";
 
 export default async function AdminReportsPage() {
+  // 举报管理页先展示处理队列，后续详情页会承载状态流转、处理记录和申诉信息。
   const reports = await getAdminReports();
 
   return (

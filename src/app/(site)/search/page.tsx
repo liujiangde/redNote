@@ -9,6 +9,8 @@ export default async function SearchPage({
   searchParams: Promise<{ q?: string }>;
 }) {
   const { q } = await searchParams;
+  // 搜索页只传递用户输入的关键词；关键词匹配、公开内容过滤和 fixture fallback
+  // 都由 searchPublishedNotes 处理，便于后续替换为全文搜索或 pgvector 召回。
   const notes = await searchPublishedNotes(q);
 
   return (
