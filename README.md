@@ -121,7 +121,7 @@ nanqiao@rednote.local / rednote123
 
 ## Current Status
 
-当前项目已完成 M1、M1.5 和 M2 基础版：Feed、搜索、笔记详情、用户主页和后台列表已切换到 Prisma 查询；跨端 API contract、i18n 字典、权限边界、Docker Compose、migration 审查和 CI 已落地；登录、注册、发布、预签名上传和 `/publish`、`/admin` 权限保护已接通。下一步进入 M3，优先实现点赞、收藏、评论和通知闭环。
+当前项目已完成 M1、M1.5、M2 和 M3 基础版：Feed、搜索、笔记详情、用户主页和后台列表已切换到 Prisma 查询；跨端 API contract、i18n 字典、权限边界、Docker Compose、migration 审查和 CI 已落地；登录、注册、发布、预签名上传和 `/publish`、`/admin` 权限保护已接通；点赞、收藏、一级评论、关注和通知写入已接通。下一步进入 M3.1，优先补通知中心、评论回复/分页、互动风控和移动端互动 API。
 
 ## Project Shape
 

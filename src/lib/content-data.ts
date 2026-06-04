@@ -84,6 +84,31 @@ const noteDetailInclude = {
       alt: true,
     },
   },
+  // 详情页先展示一级评论前 20 条和回复数量，避免一次展开整棵评论树。
+  // 后续 M3 增强可在这里接 cursor pagination 和二级回复查询。
+  comments: {
+    where: {
+      parentId: null,
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+    take: 20,
+    include: {
+      author: {
+        select: {
+          name: true,
+          handle: true,
+          avatarUrl: true,
+        },
+      },
+      _count: {
+        select: {
+          replies: true,
+        },
+      },
+    },
+  },
 } satisfies Prisma.NoteInclude;
 
 type NoteCardRecord = Prisma.NoteGetPayload<{ include: typeof noteCardInclude }>;
@@ -114,6 +139,19 @@ export type NoteDetailData = NoteCardData & {
   images: Array<{
     url: string;
     alt: string;
+  }>;
+  viewerHasLiked: boolean;
+  viewerHasFavorited: boolean;
+  commentsList: Array<{
+    id: string;
+    content: string;
+    createdAt: string;
+    replyCount: number;
+    author: {
+      name: string;
+      handle: string;
+      avatarUrl: string;
+    };
   }>;
 };
 
@@ -312,7 +350,11 @@ function toNoteCard(note: NoteCardRecord): NoteCardData {
   };
 }
 
-function toNoteDetail(note: NoteDetailRecord, viewCount: number): NoteDetailData {
+function toNoteDetail(
+  note: NoteDetailRecord,
+  viewCount: number,
+  viewerState: { hasLiked: boolean; hasFavorited: boolean },
+): NoteDetailData {
   const card = toNoteCard({
     ...note,
     images: note.images.slice(0, 1),
@@ -328,6 +370,19 @@ function toNoteDetail(note: NoteDetailRecord, viewCount: number): NoteDetailData
           alt: image.alt ?? note.title,
         }))
       : [{ url: DEFAULT_NOTE_IMAGE, alt: note.title }],
+    viewerHasLiked: viewerState.hasLiked,
+    viewerHasFavorited: viewerState.hasFavorited,
+    commentsList: note.comments.map((comment) => ({
+      id: comment.id,
+      content: comment.content,
+      createdAt: formatDate(comment.createdAt),
+      replyCount: comment._count.replies,
+      author: {
+        name: comment.author.name,
+        handle: comment.author.handle,
+        avatarUrl: comment.author.avatarUrl ?? DEFAULT_AVATAR_URL,
+      },
+    })),
   };
 }
 
@@ -422,7 +477,10 @@ export async function searchPublishedNotes(
   );
 }
 
-export async function getPublishedNoteDetail(noteIdOrSlug: string) {
+export async function getPublishedNoteDetail(
+  noteIdOrSlug: string,
+  options: { viewerId?: string } = {},
+) {
   await connection();
 
   return withDatabaseFallback(
@@ -442,21 +500,52 @@ export async function getPublishedNoteDetail(noteIdOrSlug: string) {
 
       // MVP 阶段直接递增浏览量。进入公开测试前应替换为 Redis 聚合或去重计数，
       // 避免热点笔记每次访问都产生数据库写入竞争。
-      const updated = await db.note.update({
-        where: {
-          id: note.id,
-        },
-        data: {
-          viewCount: {
-            increment: 1,
+      const [updated, viewerLike, viewerFavorite] = await Promise.all([
+        db.note.update({
+          where: {
+            id: note.id,
           },
-        },
-        select: {
-          viewCount: true,
-        },
-      });
+          data: {
+            viewCount: {
+              increment: 1,
+            },
+          },
+          select: {
+            viewCount: true,
+          },
+        }),
+        options.viewerId
+          ? db.like.findUnique({
+              where: {
+                userId_noteId: {
+                  userId: options.viewerId,
+                  noteId: note.id,
+                },
+              },
+              select: {
+                noteId: true,
+              },
+            })
+          : null,
+        options.viewerId
+          ? db.favorite.findUnique({
+              where: {
+                userId_noteId: {
+                  userId: options.viewerId,
+                  noteId: note.id,
+                },
+              },
+              select: {
+                noteId: true,
+              },
+            })
+          : null,
+      ]);
 
-      return toNoteDetail(note, updated.viewCount);
+      return toNoteDetail(note, updated.viewCount, {
+        hasLiked: Boolean(viewerLike),
+        hasFavorited: Boolean(viewerFavorite),
+      });
     },
     () => {
       const note = demoNotes.find((item) => item.id === noteIdOrSlug);
@@ -469,12 +558,15 @@ export async function getPublishedNoteDetail(noteIdOrSlug: string) {
         ...toFixtureNoteCard(note),
         content: note.excerpt,
         images: [{ url: note.imageUrl, alt: note.title }],
+        viewerHasLiked: false,
+        viewerHasFavorited: false,
+        commentsList: [],
       };
     },
   );
 }
 
-export async function getUserProfile(handle: string) {
+export async function getUserProfile(handle: string, options: { viewerId?: string } = {}) {
   await connection();
 
   return withDatabaseFallback(
@@ -507,6 +599,21 @@ export async function getUserProfile(handle: string) {
         return null;
       }
 
+      const isSelf = options.viewerId === user.id;
+      const follow = options.viewerId
+        ? await db.follow.findUnique({
+            where: {
+              followerId_followingId: {
+                followerId: options.viewerId,
+                followingId: user.id,
+              },
+            },
+            select: {
+              followingId: true,
+            },
+          })
+        : null;
+
       return {
         id: user.id,
         name: user.name,
@@ -516,6 +623,8 @@ export async function getUserProfile(handle: string) {
         followerCount: user._count.followers,
         followingCount: user._count.following,
         noteCount: user._count.notes,
+        isSelf,
+        isFollowing: Boolean(follow),
         notes: user.notes.map(toNoteCard),
       };
     },
@@ -536,6 +645,8 @@ export async function getUserProfile(handle: string) {
         followerCount: 0,
         followingCount: 0,
         noteCount: notes.length,
+        isSelf: false,
+        isFollowing: false,
         notes: notes.map(toFixtureNoteCard),
       };
     },

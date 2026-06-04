@@ -104,8 +104,8 @@ M1.5 基础版已经落地：
 | `/` | `src/app/(site)/page.tsx` | 推荐 Feed 和趋势话题 |
 | `/search` | `src/app/(site)/search/page.tsx` | 搜索结果页，已接入 Prisma 关键词查询 |
 | `/publish` | `src/app/(site)/publish/page.tsx` | 发布表单骨架 |
-| `/notes/[noteId]` | `src/app/(site)/notes/[noteId]/page.tsx` | 笔记详情页 |
-| `/users/[handle]` | `src/app/(site)/users/[handle]/page.tsx` | 用户主页 |
+| `/notes/[noteId]` | `src/app/(site)/notes/[noteId]/page.tsx` | 笔记详情页，支持点赞、收藏和一级评论 |
+| `/users/[handle]` | `src/app/(site)/users/[handle]/page.tsx` | 用户主页，支持关注和取消关注 |
 | `/login` | `src/app/(auth)/login/page.tsx` | 登录页 UI |
 | `/register` | `src/app/(auth)/register/page.tsx` | 注册页 UI |
 | `/admin` | `src/app/admin/page.tsx` | 管理后台数据看板 |
@@ -257,6 +257,16 @@ node --input-type=module -e "import 'dotenv/config'; import pg from 'pg'; const 
 
 - Feed、搜索、详情页、用户主页读取 Prisma 数据。
 - 后台指标、趋势标签、举报队列、笔记列表、用户列表读取真实表。
+
+M3 互动写流程集中在 `src/lib/community-actions.ts`：
+
+- 点赞：详情页提交 `toggleLike`，服务端校验登录态和已发布笔记，存在则取消，不存在则创建，并给笔记作者写入 `LIKE` 通知。
+- 收藏：详情页提交 `toggleFavorite`，流程与点赞一致，新增收藏时写入 `FAVORITE` 通知。
+- 评论：详情页提交 `createComment`，服务端校验 1-1000 字正文后创建一级评论，并写入 `COMMENT` 通知。
+- 关注：用户主页提交 `toggleFollow`，不能关注自己，存在关系则取消，不存在则创建，并给被关注用户写入 `FOLLOW` 通知。
+- 刷新：互动完成后刷新首页、搜索页、笔记详情页和相关用户主页，保证计数、按钮状态和评论列表刷新后保持一致。
+
+当前通知只完成写入，通知中心页面/API、未读数、已读状态和移动端 Push 会在 M3.1/M8 继续实现。
 
 `src/lib/mock-data.ts` 作为 UI fixture 和开发兜底保留：当本地数据库端口不可达时，`content-data.ts` 会临时返回 fixture 数据，避免页面直接 500。数据库启动后会自动使用真实 Prisma 查询。后续新增页面应优先复用或扩展 `content-data.ts` 中的查询函数，避免页面组件直接堆叠复杂 Prisma include。
 

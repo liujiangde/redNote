@@ -1,8 +1,12 @@
 import Image from "next/image";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Bookmark, Heart, MessageCircle } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { getCurrentSession } from "@/lib/auth-boundary";
+import { createComment, toggleFavorite, toggleLike } from "@/lib/community-actions";
 import { getPublishedNoteDetail } from "@/lib/content-data";
 
 export default async function NoteDetailPage({
@@ -10,9 +14,12 @@ export default async function NoteDetailPage({
 }: {
   params: Promise<{ noteId: string }>;
 }) {
-  const { noteId } = await params;
+  const [{ noteId }, session] = await Promise.all([params, getCurrentSession()]);
   // 详情页只允许展示已发布笔记；服务层会同时支持 id/slug 查询并处理浏览量。
-  const note = await getPublishedNoteDetail(noteId);
+  // 传入 viewerId 后，服务层会额外返回当前用户是否点赞/收藏，供按钮状态使用。
+  const note = await getPublishedNoteDetail(noteId, {
+    viewerId: session?.user.id,
+  });
 
   if (!note) {
     notFound();
@@ -20,9 +27,90 @@ export default async function NoteDetailPage({
 
   return (
     <article className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
-      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-        <div className="relative aspect-[16/10] bg-slate-100">
-          <Image src={note.imageUrl} alt={note.imageAlt} fill className="object-cover" priority />
+      <div className="space-y-4">
+        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+          <div className="relative aspect-[16/10] bg-slate-100">
+            <Image src={note.imageUrl} alt={note.imageAlt} fill className="object-cover" priority />
+          </div>
+        </div>
+        {note.images.length > 1 && (
+          <div className="grid grid-cols-3 gap-3">
+            {note.images.slice(1, 4).map((image) => (
+              <div
+                className="relative aspect-[4/3] overflow-hidden rounded-lg border border-slate-200 bg-slate-100"
+                key={image.url}
+              >
+                <Image src={image.url} alt={image.alt} fill className="object-cover" />
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="rounded-lg border border-slate-200 bg-white p-5">
+          <div className="flex items-center gap-2">
+            <MessageCircle className="h-5 w-5 text-teal-600" />
+            <h2 className="text-base font-semibold text-slate-950">评论</h2>
+            <span className="text-sm text-slate-500">({note.comments})</span>
+          </div>
+          {session?.user ? (
+            <form action={createComment.bind(null, note.id)} className="mt-4 space-y-3">
+              <textarea
+                className="min-h-24 w-full resize-y rounded-lg border border-slate-200 px-3 py-2 text-sm leading-6 outline-none focus:border-rose-300 focus:ring-2 focus:ring-rose-100"
+                maxLength={1000}
+                name="content"
+                placeholder="写下你的评论"
+                required
+              />
+              <div className="flex justify-end">
+                <Button type="submit">发布评论</Button>
+              </div>
+            </form>
+          ) : (
+            <Link
+              className="mt-4 inline-flex h-10 items-center rounded-lg bg-rose-600 px-4 text-sm font-semibold text-white hover:bg-rose-700"
+              href={`/login?callbackUrl=${encodeURIComponent(`/notes/${note.id}`)}`}
+            >
+              登录后评论
+            </Link>
+          )}
+          <div className="mt-5 space-y-4">
+            {note.commentsList.map((comment) => (
+              <div className="border-t border-slate-100 pt-4" key={comment.id}>
+                <div className="flex items-start gap-3">
+                  <Image
+                    src={comment.author.avatarUrl}
+                    alt={comment.author.name}
+                    width={36}
+                    height={36}
+                    className="h-9 w-9 rounded-full object-cover"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Link
+                        className="font-medium text-slate-900"
+                        href={`/users/${comment.author.handle}`}
+                      >
+                        {comment.author.name}
+                      </Link>
+                      <span className="text-xs text-slate-400">{comment.createdAt}</span>
+                    </div>
+                    <p className="mt-1 whitespace-pre-line text-sm leading-6 text-slate-600">
+                      {comment.content}
+                    </p>
+                    {comment.replyCount > 0 && (
+                      <p className="mt-1 text-xs text-slate-400">
+                        {comment.replyCount} 条回复
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+            {!note.commentsList.length && (
+              <p className="border-t border-slate-100 pt-4 text-sm text-slate-500">
+                还没有评论，来写第一条。
+              </p>
+            )}
+          </div>
         </div>
       </div>
       <aside className="rounded-lg border border-slate-200 bg-white p-5">
@@ -46,18 +134,30 @@ export default async function NoteDetailPage({
             <Badge key={tag}>{tag}</Badge>
           ))}
         </div>
-        <div className="mt-6 grid grid-cols-3 gap-3 text-center text-sm">
-          <div className="rounded-lg bg-rose-50 p-3 text-rose-700">
-            <Heart className="mx-auto h-4 w-4" />
-            <strong className="mt-1 block">{note.likes}</strong>
-          </div>
-          <div className="rounded-lg bg-amber-50 p-3 text-amber-700">
-            <Bookmark className="mx-auto h-4 w-4" />
-            <strong className="mt-1 block">{note.favorites}</strong>
-          </div>
-          <div className="rounded-lg bg-teal-50 p-3 text-teal-700">
-            <MessageCircle className="mx-auto h-4 w-4" />
-            <strong className="mt-1 block">{note.comments}</strong>
+        <div className="mt-6 grid gap-3">
+          <form action={toggleLike.bind(null, note.id)}>
+            <Button
+              className="w-full"
+              type="submit"
+              variant={note.viewerHasLiked ? "primary" : "secondary"}
+            >
+              <Heart className="h-4 w-4" />
+              {note.viewerHasLiked ? "已点赞" : "点赞"} {note.likes}
+            </Button>
+          </form>
+          <form action={toggleFavorite.bind(null, note.id)}>
+            <Button
+              className="w-full"
+              type="submit"
+              variant={note.viewerHasFavorited ? "primary" : "secondary"}
+            >
+              <Bookmark className="h-4 w-4" />
+              {note.viewerHasFavorited ? "已收藏" : "收藏"} {note.favorites}
+            </Button>
+          </form>
+          <div className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-teal-50 px-4 text-sm font-semibold text-teal-700">
+            <MessageCircle className="h-4 w-4" />
+            评论 {note.comments}
           </div>
         </div>
         <p className="mt-4 text-center text-xs text-slate-500">
