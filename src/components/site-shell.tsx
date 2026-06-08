@@ -1,11 +1,17 @@
 import Link from "next/link";
 import { Bell, Compass, Plus, Search, ShieldCheck } from "lucide-react";
 
-export function SiteShell({
+import { getCurrentSession } from "@/lib/auth-boundary";
+import { getUnreadNotificationCount } from "@/lib/notification-data";
+
+export async function SiteShell({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const session = await getCurrentSession();
+  const unreadCount = session?.user ? await getUnreadNotificationCount(session.user.id) : 0;
+
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
@@ -52,13 +58,19 @@ export function SiteShell({
               <ShieldCheck className="h-4 w-4" />
               <span className="hidden md:inline">后台</span>
             </Link>
-            <button
+            <Link
               aria-label="通知"
-              className="grid h-10 w-10 place-items-center rounded-lg hover:bg-slate-100"
-              type="button"
+              className="relative grid h-10 w-10 place-items-center rounded-lg hover:bg-slate-100"
+              href="/notifications"
+              title="通知"
             >
               <Bell className="h-4 w-4" />
-            </button>
+              {unreadCount > 0 && (
+                <span className="absolute right-1 top-1 min-w-4 rounded-full bg-rose-600 px-1 text-center text-[10px] font-bold leading-4 text-white">
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              )}
+            </Link>
           </nav>
         </div>
       </header>

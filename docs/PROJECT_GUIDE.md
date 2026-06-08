@@ -106,6 +106,7 @@ M1.5 基础版已经落地：
 | `/publish` | `src/app/(site)/publish/page.tsx` | 发布表单骨架 |
 | `/notes/[noteId]` | `src/app/(site)/notes/[noteId]/page.tsx` | 笔记详情页，支持点赞、收藏和一级评论 |
 | `/users/[handle]` | `src/app/(site)/users/[handle]/page.tsx` | 用户主页，支持关注和取消关注 |
+| `/notifications` | `src/app/(site)/notifications/page.tsx` | 通知中心，支持未读数、筛选、分页和标记已读 |
 | `/login` | `src/app/(auth)/login/page.tsx` | 登录页 UI |
 | `/register` | `src/app/(auth)/register/page.tsx` | 注册页 UI |
 | `/admin` | `src/app/admin/page.tsx` | 管理后台数据看板 |
@@ -117,6 +118,7 @@ M1.5 基础版已经落地：
 | `/api/v1/feed` | `src/app/api/v1/feed/route.ts` | 跨端 Feed API 预留 |
 | `/api/v1/search` | `src/app/api/v1/search/route.ts` | 跨端搜索 API 预留 |
 | `/api/v1/uploads` | `src/app/api/v1/uploads/route.ts` | 登录用户图片预签名上传 |
+| `/api/v1/notifications` | `src/app/api/v1/notifications/route.ts` | 跨端通知 API，支持列表和标记已读 |
 
 `(site)` 和 `(auth)` 是 App Router route group，不会出现在 URL 中。页面和布局默认是 Server Components，需要浏览器状态或事件处理时再添加 `"use client"`。
 
@@ -266,13 +268,21 @@ M3 互动写流程集中在 `src/lib/community-actions.ts`：
 - 关注：用户主页提交 `toggleFollow`，不能关注自己，存在关系则取消，不存在则创建，并给被关注用户写入 `FOLLOW` 通知。
 - 刷新：互动完成后刷新首页、搜索页、笔记详情页和相关用户主页，保证计数、按钮状态和评论列表刷新后保持一致。
 
-当前通知只完成写入，通知中心页面/API、未读数、已读状态和移动端 Push 会在 M3.1/M8 继续实现。
+M3.1 通知中心流程：
+
+- 入口：`src/components/site-shell.tsx` 在登录态读取未读通知数，并在导航铃铛上显示徽标。
+- 读模型：`src/lib/notification-data.ts` 统一处理通知列表、未读数、类型文案、read/type 筛选和 cursor page。
+- Web 页面：`/notifications` 支持全部/未读/已读、类型筛选、下一页、单条标为已读和全部标为已读。
+- 跨端 API：`GET /api/v1/notifications` 返回统一 API envelope，`PATCH /api/v1/notifications` 支持按 ids 或 all 标记已读。
+- 权限：通知读取和已读写入都按当前 session 的 `recipientId` 限定，不能读取或修改他人通知。
+
+当前通知中心已覆盖站内通知基础版；移动端 Push、邮件通知、通知模板和通知队列会在 M8/M9 继续实现。
 
 `src/lib/mock-data.ts` 作为 UI fixture 和开发兜底保留：当本地数据库端口不可达时，`content-data.ts` 会临时返回 fixture 数据，避免页面直接 500。数据库启动后会自动使用真实 Prisma 查询。后续新增页面应优先复用或扩展 `content-data.ts` 中的查询函数，避免页面组件直接堆叠复杂 Prisma include。
 
 当前核心读链路还没有正式缓存，详情页浏览量仍是同步数据库递增，搜索仍是简单关键词查询。这些实现适合 MVP，不适合大流量公开访问；后续优化时应优先处理缓存、分页、浏览量聚合和搜索索引。
 
-跨端 API 基础约定已经在 `src/lib/api-contract.ts` 中定义。当前 `/api/v1/feed` 和 `/api/v1/search` 返回统一 `ok/version/data` envelope 和 `pageInfo`，但 cursor 还只是结构预留；真实 cursor 查询会在 M4 推荐/搜索阶段补齐。
+跨端 API 基础约定已经在 `src/lib/api-contract.ts` 中定义。当前 `/api/v1/feed`、`/api/v1/search` 和 `/api/v1/notifications` 返回统一 `ok/version/data` envelope 和 `pageInfo`。Feed/Search 的真实 cursor 查询会在 M4 推荐/搜索阶段补齐；通知列表已经使用通知 id 做 cursor 分页。
 
 ## 当前写入流程
 

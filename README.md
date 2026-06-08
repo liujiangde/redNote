@@ -121,13 +121,13 @@ nanqiao@rednote.local / rednote123
 
 ## Current Status
 
-当前项目已完成 M1、M1.5、M2 和 M3 基础版：Feed、搜索、笔记详情、用户主页和后台列表已切换到 Prisma 查询；跨端 API contract、i18n 字典、权限边界、Docker Compose、migration 审查和 CI 已落地；登录、注册、发布、预签名上传和 `/publish`、`/admin` 权限保护已接通；点赞、收藏、一级评论、关注和通知写入已接通。下一步进入 M3.1，优先补通知中心、评论回复/分页、互动风控和移动端互动 API。
+当前项目已完成 M1、M1.5、M2、M3 基础版和 M3.1 通知中心基础版：Feed、搜索、笔记详情、用户主页和后台列表已切换到 Prisma 查询；跨端 API contract、i18n 字典、权限边界、Docker Compose、migration 审查和 CI 已落地；登录、注册、发布、预签名上传和 `/publish`、`/admin` 权限保护已接通；点赞、收藏、一级评论、关注、通知写入、通知中心页面/API、未读数和标记已读已接通。下一步继续 M3.1，优先补评论回复/分页、互动风控和移动端互动 API。
 
 ## Project Shape
 
-- `src/app/(site)` C 端页面：Feed、搜索、发布、笔记详情、用户主页
+- `src/app/(site)` C 端页面：Feed、搜索、发布、笔记详情、用户主页、通知中心
 - `src/app/admin` 管理后台：数据看板、笔记、举报、用户
-- `src/app/api/v1` 跨端 API：Feed、搜索、图片预签名上传
+- `src/app/api/v1` 跨端 API：Feed、搜索、图片预签名上传、通知列表和已读
 - `src/lib` 数据库、鉴权、缓存、对象存储、AI embedding、推荐评分
 - `src/lib/api-contract.ts` 跨端 API envelope、错误码和分页结构
 - `src/lib/i18n.ts` 国际化字典和基础格式化
