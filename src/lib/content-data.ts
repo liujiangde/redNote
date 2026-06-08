@@ -8,6 +8,7 @@ import {
   ReportStatus,
   ReportTargetType,
 } from "@/generated/prisma/client";
+import { createCursorPage, type PageInfo } from "@/lib/api-contract";
 import { db } from "@/lib/db";
 import {
   adminMetrics as fixtureAdminMetrics,
@@ -25,6 +26,9 @@ const DEFAULT_NOTE_IMAGE =
 const DEFAULT_AVATAR_URL =
   "https://images.unsplash.com/photo-1502685104226-ee32379fefbe?auto=format&fit=crop&w=200&q=80";
 const DATABASE_REACHABILITY_TTL_MS = 5000;
+const DEFAULT_DETAIL_COMMENT_PAGE_SIZE = 10;
+const MAX_DETAIL_COMMENT_PAGE_SIZE = 50;
+const COMMENT_REPLY_PREVIEW_LIMIT = 3;
 
 let databaseReachability:
   | {
@@ -72,47 +76,92 @@ const noteCardInclude = {
   },
 } satisfies Prisma.NoteInclude;
 
-// 详情页需要完整图片列表，所以在卡片 include 的基础上放开 images.take 限制。
-const noteDetailInclude = {
-  ...noteCardInclude,
-  images: {
-    orderBy: {
-      sortOrder: "asc",
-    },
+const commentAuthorSelect = {
+  name: true,
+  handle: true,
+  avatarUrl: true,
+} satisfies Prisma.UserSelect;
+
+const noteDetailCommentInclude = {
+  author: {
     select: {
-      url: true,
-      alt: true,
+      ...commentAuthorSelect,
     },
   },
-  // 详情页先展示一级评论前 20 条和回复数量，避免一次展开整棵评论树。
-  // 后续 M3 增强可在这里接 cursor pagination 和二级回复查询。
-  comments: {
-    where: {
-      parentId: null,
-    },
+  // 回复预览只取每条一级评论下最近 3 条，避免详情页一次展开完整楼中楼。
+  // 后续如果回复量增长，应为单条评论增加独立的 replies cursor API。
+  replies: {
     orderBy: {
       createdAt: "desc",
     },
-    take: 20,
+    take: COMMENT_REPLY_PREVIEW_LIMIT,
     include: {
       author: {
         select: {
-          name: true,
-          handle: true,
-          avatarUrl: true,
-        },
-      },
-      _count: {
-        select: {
-          replies: true,
+          ...commentAuthorSelect,
         },
       },
     },
   },
-} satisfies Prisma.NoteInclude;
+  _count: {
+    select: {
+      replies: true,
+    },
+  },
+} satisfies Prisma.CommentInclude;
+
+function clampCommentPageSize(value: number | undefined) {
+  if (!value || !Number.isFinite(value)) {
+    return DEFAULT_DETAIL_COMMENT_PAGE_SIZE;
+  }
+
+  return Math.max(1, Math.min(MAX_DETAIL_COMMENT_PAGE_SIZE, Math.floor(value)));
+}
+
+// 详情页需要完整图片列表，并按 cursor 拉取一级评论。
+// 这里用工厂函数生成 include，是因为评论 cursor/limit 来自 URL，不能写成固定常量。
+function createNoteDetailInclude({
+  commentCursor,
+  commentLimit,
+}: {
+  commentCursor?: string;
+  commentLimit?: number;
+} = {}) {
+  const limit = clampCommentPageSize(commentLimit);
+
+  return {
+    ...noteCardInclude,
+    images: {
+      orderBy: {
+        sortOrder: "asc",
+      },
+      select: {
+        url: true,
+        alt: true,
+      },
+    },
+    comments: {
+      where: {
+        parentId: null,
+      },
+      // createdAt + id 双字段排序让 cursor 分页更稳定，避免同一时间创建的评论顺序抖动。
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: limit + 1,
+      ...(commentCursor
+        ? {
+            cursor: {
+              id: commentCursor,
+            },
+            skip: 1,
+          }
+        : {}),
+      include: noteDetailCommentInclude,
+    },
+  } satisfies Prisma.NoteInclude;
+}
 
 type NoteCardRecord = Prisma.NoteGetPayload<{ include: typeof noteCardInclude }>;
-type NoteDetailRecord = Prisma.NoteGetPayload<{ include: typeof noteDetailInclude }>;
+type NoteDetailRecord = Prisma.NoteGetPayload<{ include: ReturnType<typeof createNoteDetailInclude> }>;
 
 export type NoteCardData = {
   id: string;
@@ -142,17 +191,24 @@ export type NoteDetailData = NoteCardData & {
   }>;
   viewerHasLiked: boolean;
   viewerHasFavorited: boolean;
-  commentsList: Array<{
-    id: string;
-    content: string;
-    createdAt: string;
-    replyCount: number;
-    author: {
-      name: string;
-      handle: string;
-      avatarUrl: string;
-    };
-  }>;
+  commentsList: NoteCommentData[];
+  commentsPageInfo: PageInfo;
+};
+
+export type CommentReplyData = {
+  id: string;
+  content: string;
+  createdAt: string;
+  author: {
+    name: string;
+    handle: string;
+    avatarUrl: string;
+  };
+};
+
+export type NoteCommentData = CommentReplyData & {
+  replyCount: number;
+  replies: CommentReplyData[];
 };
 
 export type TopicTrend = {
@@ -243,6 +299,16 @@ function isDatabaseUnavailable(error: unknown) {
   const message = "message" in error ? String(error.message) : "";
 
   return code === "ECONNREFUSED" || code === "P1001" || message.includes("ECONNREFUSED");
+}
+
+function isPrismaRecordNotFound(error: unknown) {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+
+  const code = "code" in error ? String(error.code) : "";
+
+  return code === "P2025";
 }
 
 async function withDatabaseFallback<T>(query: () => Promise<T>, fallback: () => T) {
@@ -350,15 +416,52 @@ function toNoteCard(note: NoteCardRecord): NoteCardData {
   };
 }
 
+function toCommentAuthor(author: {
+  name: string;
+  handle: string;
+  avatarUrl: string | null;
+}) {
+  return {
+    name: author.name,
+    handle: author.handle,
+    avatarUrl: author.avatarUrl ?? DEFAULT_AVATAR_URL,
+  };
+}
+
+function toCommentReplyData(
+  comment: Pick<NoteDetailRecord["comments"][number], "id" | "content" | "createdAt" | "author">,
+): CommentReplyData {
+  return {
+    id: comment.id,
+    content: comment.content,
+    createdAt: formatDate(comment.createdAt),
+    author: toCommentAuthor(comment.author),
+  };
+}
+
+function toNoteCommentData(comment: NoteDetailRecord["comments"][number]): NoteCommentData {
+  return {
+    ...toCommentReplyData(comment),
+    replyCount: comment._count.replies,
+    // Prisma 为了取“最近回复”按倒序查询；页面展示时反转为时间正序，阅读更自然。
+    replies: comment.replies.map(toCommentReplyData).reverse(),
+  };
+}
+
 function toNoteDetail(
   note: NoteDetailRecord,
   viewCount: number,
   viewerState: { hasLiked: boolean; hasFavorited: boolean },
+  commentLimit: number,
 ): NoteDetailData {
   const card = toNoteCard({
     ...note,
     images: note.images.slice(0, 1),
     viewCount,
+  });
+  const commentPage = createCursorPage(note.comments.map(toNoteCommentData), {
+    limit: commentLimit,
+    getCursor: (comment) => comment.id,
   });
 
   return {
@@ -372,17 +475,8 @@ function toNoteDetail(
       : [{ url: DEFAULT_NOTE_IMAGE, alt: note.title }],
     viewerHasLiked: viewerState.hasLiked,
     viewerHasFavorited: viewerState.hasFavorited,
-    commentsList: note.comments.map((comment) => ({
-      id: comment.id,
-      content: comment.content,
-      createdAt: formatDate(comment.createdAt),
-      replyCount: comment._count.replies,
-      author: {
-        name: comment.author.name,
-        handle: comment.author.handle,
-        avatarUrl: comment.author.avatarUrl ?? DEFAULT_AVATAR_URL,
-      },
-    })),
+    commentsList: commentPage.items,
+    commentsPageInfo: commentPage.pageInfo,
   };
 }
 
@@ -479,20 +573,39 @@ export async function searchPublishedNotes(
 
 export async function getPublishedNoteDetail(
   noteIdOrSlug: string,
-  options: { viewerId?: string } = {},
+  options: { commentCursor?: string; commentLimit?: number; viewerId?: string } = {},
 ) {
   await connection();
+  const commentLimit = clampCommentPageSize(options.commentLimit);
 
   return withDatabaseFallback(
     async () => {
       // 详情页允许用 id 或 slug 打开，但只展示已发布笔记，隐藏/草稿不对外暴露。
-      const note = await db.note.findFirst({
-        where: {
-          status: NoteStatus.PUBLISHED,
-          OR: [{ id: noteIdOrSlug }, { slug: noteIdOrSlug }],
-        },
-        include: noteDetailInclude,
-      });
+      const loadNote = (commentCursor?: string) =>
+        db.note.findFirst({
+          where: {
+            status: NoteStatus.PUBLISHED,
+            OR: [{ id: noteIdOrSlug }, { slug: noteIdOrSlug }],
+          },
+          include: createNoteDetailInclude({
+            commentCursor,
+            commentLimit,
+          }),
+        });
+
+      let note: Awaited<ReturnType<typeof loadNote>>;
+
+      try {
+        note = await loadNote(options.commentCursor);
+      } catch (error) {
+        if (!options.commentCursor || !isPrismaRecordNotFound(error)) {
+          throw error;
+        }
+
+        // 用户可能复制了过期的 commentCursor，或者手写了不存在的 cursor。
+        // 这种情况不应该让详情页 500，直接回退到最新评论页即可。
+        note = await loadNote();
+      }
 
       if (!note) {
         return null;
@@ -542,10 +655,15 @@ export async function getPublishedNoteDetail(
           : null,
       ]);
 
-      return toNoteDetail(note, updated.viewCount, {
-        hasLiked: Boolean(viewerLike),
-        hasFavorited: Boolean(viewerFavorite),
-      });
+      return toNoteDetail(
+        note,
+        updated.viewCount,
+        {
+          hasLiked: Boolean(viewerLike),
+          hasFavorited: Boolean(viewerFavorite),
+        },
+        commentLimit,
+      );
     },
     () => {
       const note = demoNotes.find((item) => item.id === noteIdOrSlug);
@@ -561,6 +679,11 @@ export async function getPublishedNoteDetail(
         viewerHasLiked: false,
         viewerHasFavorited: false,
         commentsList: [],
+        commentsPageInfo: {
+          limit: commentLimit,
+          nextCursor: null,
+          hasNextPage: false,
+        },
       };
     },
   );

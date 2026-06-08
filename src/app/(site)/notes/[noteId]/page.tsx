@@ -9,15 +9,32 @@ import { getCurrentSession } from "@/lib/auth-boundary";
 import { createComment, toggleFavorite, toggleLike } from "@/lib/community-actions";
 import { getPublishedNoteDetail } from "@/lib/content-data";
 
+function buildCommentPageHref(noteId: string, cursor: string | null) {
+  // 评论分页状态放到 URL，用户刷新或复制链接时仍能停留在当前评论页。
+  if (!cursor) {
+    return `/notes/${noteId}`;
+  }
+
+  return `/notes/${noteId}?commentCursor=${encodeURIComponent(cursor)}`;
+}
+
 export default async function NoteDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ noteId: string }>;
+  searchParams: Promise<{ commentCursor?: string }>;
 }) {
-  const [{ noteId }, session] = await Promise.all([params, getCurrentSession()]);
+  const [{ noteId }, { commentCursor }, session] = await Promise.all([
+    params,
+    searchParams,
+    getCurrentSession(),
+  ]);
   // 详情页只允许展示已发布笔记；服务层会同时支持 id/slug 查询并处理浏览量。
   // 传入 viewerId 后，服务层会额外返回当前用户是否点赞/收藏，供按钮状态使用。
+  // commentCursor 来自 URL，只影响一级评论分页，不影响笔记主体和互动状态。
   const note = await getPublishedNoteDetail(noteId, {
+    commentCursor,
     viewerId: session?.user.id,
   });
 
@@ -52,6 +69,7 @@ export default async function NoteDetailPage({
             <span className="text-sm text-slate-500">({note.comments})</span>
           </div>
           {session?.user ? (
+            // 一级评论表单只绑定 note.id；Server Action 会把提交内容写成 parentId=null。
             <form action={createComment.bind(null, note.id)} className="mt-4 space-y-3">
               <textarea
                 className="min-h-24 w-full resize-y rounded-lg border border-slate-200 px-3 py-2 text-sm leading-6 outline-none focus:border-rose-300 focus:ring-2 focus:ring-rose-100"
@@ -96,10 +114,60 @@ export default async function NoteDetailPage({
                     <p className="mt-1 whitespace-pre-line text-sm leading-6 text-slate-600">
                       {comment.content}
                     </p>
-                    {comment.replyCount > 0 && (
-                      <p className="mt-1 text-xs text-slate-400">
-                        {comment.replyCount} 条回复
-                      </p>
+                    {comment.replies.length > 0 && (
+                      // 每条一级评论只展示最近几条回复；完整楼中楼后续用独立分页 API 承接。
+                      <div className="mt-3 space-y-3 rounded-lg bg-slate-50 p-3">
+                        {comment.replies.map((reply) => (
+                          <div className="flex items-start gap-2" key={reply.id}>
+                            <Image
+                              src={reply.author.avatarUrl}
+                              alt={reply.author.name}
+                              width={28}
+                              height={28}
+                              className="h-7 w-7 rounded-full object-cover"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Link
+                                  className="text-sm font-medium text-slate-800"
+                                  href={`/users/${reply.author.handle}`}
+                                >
+                                  {reply.author.name}
+                                </Link>
+                                <span className="text-xs text-slate-400">{reply.createdAt}</span>
+                              </div>
+                              <p className="mt-1 whitespace-pre-line text-sm leading-6 text-slate-600">
+                                {reply.content}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                        {comment.replyCount > comment.replies.length && (
+                          <p className="text-xs text-slate-400">
+                            还有 {comment.replyCount - comment.replies.length} 条更早回复暂未展开。
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {session?.user && (
+                      // 回复表单额外绑定 comment.id；服务端会验证 parentId 属于当前笔记。
+                      <form
+                        action={createComment.bind(null, note.id, comment.id)}
+                        className="mt-3 space-y-2"
+                      >
+                        <textarea
+                          className="min-h-16 w-full resize-y rounded-lg border border-slate-200 px-3 py-2 text-sm leading-6 outline-none focus:border-rose-300 focus:ring-2 focus:ring-rose-100"
+                          maxLength={1000}
+                          name="content"
+                          placeholder={`回复 ${comment.author.name}`}
+                          required
+                        />
+                        <div className="flex justify-end">
+                          <Button type="submit" variant="secondary">
+                            回复
+                          </Button>
+                        </div>
+                      </form>
                     )}
                   </div>
                 </div>
@@ -111,6 +179,27 @@ export default async function NoteDetailPage({
               </p>
             )}
           </div>
+          {(note.commentsPageInfo.hasNextPage || commentCursor) && (
+            // 下一页评论只翻评论列表，不重新设计为客户端无限滚动，先保证 SSR 和移动端 API 口径一致。
+            <div className="mt-5 flex flex-wrap justify-center gap-3 border-t border-slate-100 pt-4">
+              {commentCursor && (
+                <Link
+                  className="inline-flex h-10 items-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+                  href={buildCommentPageHref(note.id, null)}
+                >
+                  返回最新评论
+                </Link>
+              )}
+              {note.commentsPageInfo.hasNextPage && (
+                <Link
+                  className="inline-flex h-10 items-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+                  href={buildCommentPageHref(note.id, note.commentsPageInfo.nextCursor)}
+                >
+                  下一页评论
+                </Link>
+              )}
+            </div>
+          )}
         </div>
       </div>
       <aside className="rounded-lg border border-slate-200 bg-white p-5">

@@ -60,6 +60,31 @@ async function getPublishedNoteTarget(noteIdOrSlug: string) {
   });
 }
 
+async function getReplyParentComment({
+  noteId,
+  parentId,
+}: {
+  noteId: string;
+  parentId: string;
+}) {
+  return db.comment.findFirst({
+    where: {
+      id: parentId,
+      noteId,
+      parentId: null,
+    },
+    select: {
+      id: true,
+      authorId: true,
+      author: {
+        select: {
+          name: true,
+        },
+      },
+    },
+  });
+}
+
 async function createNotificationIfNeeded({
   actorId,
   body,
@@ -193,7 +218,11 @@ export async function toggleFavorite(noteIdOrSlug: string) {
   revalidateNoteInteractionPaths(note);
 }
 
-export async function createComment(noteIdOrSlug: string, formData: FormData) {
+export async function createComment(
+  noteIdOrSlug: string,
+  parentIdOrFormData: string | FormData,
+  maybeFormData?: FormData,
+) {
   const session = await requireUserOrRedirect(`/notes/${noteIdOrSlug}`);
   const note = await getPublishedNoteTarget(noteIdOrSlug);
 
@@ -201,8 +230,19 @@ export async function createComment(noteIdOrSlug: string, formData: FormData) {
     redirect("/");
   }
 
-  // 评论写入前只接受服务端校验后的正文。当前实现一级评论，
-  // 回复树、敏感词审核和频控会在后续社区治理阶段补齐。
+  // 这个 Server Action 同时支持一级评论和二级回复：
+  // - 一级评论表单只 bind noteId，第二个参数就是 FormData。
+  // - 回复表单 bind noteId + parentId，第三个参数才是 FormData。
+  // 这样页面无需新增客户端状态，也能保持无 JS 时的表单可提交能力。
+  const parentId = typeof parentIdOrFormData === "string" ? parentIdOrFormData : undefined;
+  const formData = parentIdOrFormData instanceof FormData ? parentIdOrFormData : maybeFormData;
+
+  if (!formData) {
+    return;
+  }
+
+  // 评论写入前只接受服务端校验后的正文。敏感词审核、频控和删除/隐藏策略
+  // 会在后续互动风控和内容治理阶段补齐。
   const parsed = commentSchema.safeParse({
     content: formData.get("content"),
   });
@@ -211,19 +251,44 @@ export async function createComment(noteIdOrSlug: string, formData: FormData) {
     return;
   }
 
+  const parentComment = parentId
+    ? await getReplyParentComment({
+        noteId: note.id,
+        parentId,
+      })
+    : null;
+
+  if (parentId && !parentComment) {
+    return;
+  }
+
   await db.comment.create({
     data: {
       authorId: session.user.id,
       content: parsed.data.content,
       noteId: note.id,
+      parentId: parentComment?.id,
     },
   });
+
+  const notificationTarget = parentComment
+    ? {
+        recipientId: parentComment.authorId,
+        title: `${session.user.name} 回复了你的评论`,
+        body: parsed.data.content.slice(0, 120),
+      }
+    : {
+        recipientId: note.authorId,
+        title: `${session.user.name} 评论了你的笔记`,
+        body: parsed.data.content.slice(0, 120),
+      };
+
   await createNotificationIfNeeded({
     actorId: session.user.id,
     href: `/notes/${note.slug}`,
-    recipientId: note.authorId,
-    title: `${session.user.name} 评论了你的笔记`,
-    body: parsed.data.content.slice(0, 120),
+    recipientId: notificationTarget.recipientId,
+    title: notificationTarget.title,
+    body: notificationTarget.body,
     type: NotificationType.COMMENT,
   });
 
