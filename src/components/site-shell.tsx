@@ -9,6 +9,8 @@ export async function SiteShell({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // 站点外壳是 Server Component，可以直接读取 session。
+  // 未读数只在登录态查询；未登录用户看到通知入口，点击后由 /notifications 负责跳转登录。
   const session = await getCurrentSession();
   const unreadCount = session?.user ? await getUnreadNotificationCount(session.user.id) : 0;
 
@@ -65,6 +67,7 @@ export async function SiteShell({
               title="通知"
             >
               <Bell className="h-4 w-4" />
+              {/* 未读徽标只展示数量，不在导航里拉通知列表，避免所有页面都承担重查询。 */}
               {unreadCount > 0 && (
                 <span className="absolute right-1 top-1 min-w-4 rounded-full bg-rose-600 px-1 text-center text-[10px] font-bold leading-4 text-white">
                   {unreadCount > 99 ? "99+" : unreadCount}

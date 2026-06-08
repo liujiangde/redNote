@@ -17,6 +17,10 @@ import {
 
 export const dynamic = "force-dynamic";
 
+// PATCH 请求体约定：
+// - { all: true } 表示把当前用户所有未读通知设为已读。
+// - { ids: ["..."] } 表示只处理指定通知。
+// ids 最多 100 条，避免移动端一次提交过大 payload。
 const markReadSchema = z
   .object({
     all: z.boolean().optional(),
@@ -27,6 +31,8 @@ const markReadSchema = z
   });
 
 async function getApiSession() {
+  // 当前 M3.1 API 先复用 Web NextAuth session。
+  // M8 移动端接入 token/session refresh 时，可以只替换这个认证入口。
   const session = await getCurrentSession();
 
   if (!session?.user) {
@@ -37,6 +43,8 @@ async function getApiSession() {
 }
 
 export async function GET(request: NextRequest) {
+  // GET /api/v1/notifications 是跨端通知列表入口：
+  // Web、未来 App、测试脚本都应使用同一套 envelope、分页和筛选参数。
   const session = await getApiSession();
 
   if (!session) {
@@ -57,6 +65,7 @@ export async function GET(request: NextRequest) {
 
   const read = parseNotificationReadFilter(request.nextUrl.searchParams.get("read"));
   const type = parseNotificationTypeFilter(request.nextUrl.searchParams.get("type"));
+  // userId 只来自 session，不允许客户端传 recipientId，避免越权读取他人通知。
   const notifications = await getNotificationsForUser({
     cursor: pagination.value.cursor,
     limit: pagination.value.limit,
@@ -69,6 +78,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
+  // PATCH /api/v1/notifications 是跨端标记已读入口。
+  // Web 页面也有 Server Action 版本，API 版本主要给移动端和外部 BFF 使用。
   const session = await getApiSession();
 
   if (!session) {
@@ -77,6 +88,7 @@ export async function PATCH(request: NextRequest) {
     });
   }
 
+  // request.json() 解析失败时按 null 进入 zod 校验，统一返回 VALIDATION_ERROR。
   const parsed = markReadSchema.safeParse(await request.json().catch(() => null));
 
   if (!parsed.success) {
@@ -111,6 +123,7 @@ export async function PATCH(request: NextRequest) {
     },
   });
 
+  // 写入后返回新的未读数，移动端可以直接刷新角标，不必立刻再 GET 一次列表。
   return apiSuccess({
     unreadCount,
   });

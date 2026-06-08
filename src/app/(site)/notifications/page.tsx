@@ -19,6 +19,8 @@ import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 20;
 
+// 顶部状态筛选只影响列表内容，不影响未读总数。
+// 未读总数始终展示当前用户全部未读通知，便于用户知道还有多少待处理消息。
 const readFilters: Array<{
   label: string;
   value: NotificationReadFilter;
@@ -33,6 +35,10 @@ function buildNotificationsHref(options: {
   read?: NotificationReadFilter;
   type?: NotificationTypeFilter;
 }) {
+  // 通知中心用 URL query 保存筛选和分页状态：
+  // 1. 链接可复制、刷新不丢状态。
+  // 2. 不需要客户端状态管理，保持 Server Component 简单。
+  // 3. all 是默认筛选，不写进 URL，避免地址变长。
   const params = new URLSearchParams();
 
   if (options.read && options.read !== "all") {
@@ -64,12 +70,15 @@ export default async function NotificationsPage({
   const session = await getCurrentSession();
 
   if (!session?.user) {
+    // 通知是用户私有数据，未登录必须先去登录页，并在登录后回到通知中心。
     redirect(`/login?callbackUrl=${encodeURIComponent("/notifications")}`);
   }
 
   const { cursor, read: rawRead, type: rawType } = await searchParams;
+  // URL 入参先做白名单归一化，非法 read/type 不抛 500，而是回退到安全默认值。
   const read = parseNotificationReadFilter(rawRead ?? null);
   const type = parseNotificationTypeFilter(rawType ?? null);
+  // 页面只传当前 session 的 userId，不能从 URL 读取用户 id，防止越权查询。
   const notifications = await getNotificationsForUser({
     cursor,
     limit: PAGE_SIZE,
@@ -80,6 +89,7 @@ export default async function NotificationsPage({
 
   return (
     <section className="space-y-6">
+      {/* 顶部操作区：展示全局未读数，并提供“全部已读”的批量入口。 */}
       <div className="rounded-lg border border-slate-200 bg-white p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
@@ -106,6 +116,7 @@ export default async function NotificationsPage({
             </Button>
           </form>
         </div>
+        {/* read 筛选用于用户快速收敛到未处理消息或回看已读消息。 */}
         <div className="mt-5 flex flex-wrap gap-2">
           {readFilters.map((filter) => (
             <Link
@@ -122,6 +133,7 @@ export default async function NotificationsPage({
             </Link>
           ))}
         </div>
+        {/* type 筛选复用 Prisma 通知枚举，后续新增通知类型只需扩展 notification-data。 */}
         <div className="mt-3 flex flex-wrap gap-2">
           <Link
             className={cn(
@@ -152,6 +164,7 @@ export default async function NotificationsPage({
       </div>
 
       {notifications.page.items.length ? (
+        // 列表中的“查看”和“标为已读”分开：用户可以先处理通知，也可以只清理未读状态。
         <div className="space-y-3">
           {notifications.page.items.map((notification) => (
             <article
@@ -195,6 +208,7 @@ export default async function NotificationsPage({
                     </p>
                   )}
                   {notification.actor && (
+                    // actor 可能为空：系统通知、被删除用户或后续运营通知都可能没有触发者。
                     <p className="mt-2 text-xs text-slate-400">
                       来自 @{notification.actor.handle}
                     </p>
@@ -230,6 +244,7 @@ export default async function NotificationsPage({
       )}
 
       {notifications.page.pageInfo.hasNextPage && (
+        // 下一页沿用当前筛选条件，仅追加 cursor，保证分页不会丢筛选上下文。
         <div className="flex justify-center">
           <Link
             className="inline-flex h-10 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50"
