@@ -7,6 +7,8 @@ import { AuthorizationError, requireUserSession } from "@/lib/auth-boundary";
 import type { PublishedNoteTarget } from "@/lib/community-service";
 import {
   createNoteComment,
+  deleteComment,
+  reportComment,
   toggleNoteFavorite,
   toggleNoteLike,
   toggleUserFollow,
@@ -117,6 +119,45 @@ export async function createComment(
   }
 
   revalidateNoteInteractionPaths(result.data.note);
+}
+
+export async function deleteOwnComment(commentId: string) {
+  const session = await requireUserOrRedirect("/");
+  const result = await deleteComment({
+    actor: session.user,
+    commentId,
+  });
+
+  if (!result.ok) {
+    return;
+  }
+
+  revalidateNoteInteractionPaths(result.data.note);
+}
+
+export async function reportVisibleComment(commentId: string, formData: FormData) {
+  const session = await requireUserOrRedirect("/");
+  const reason = formData.get("reason");
+  const detail = formData.get("detail");
+
+  if (typeof reason !== "string") {
+    return;
+  }
+
+  const result = await reportComment({
+    actor: session.user,
+    commentId,
+    detail: typeof detail === "string" ? detail : undefined,
+    reason,
+  });
+
+  if (!result.ok) {
+    return;
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/reports");
+  revalidatePath("/notifications");
 }
 
 export async function toggleFollow(handle: string) {

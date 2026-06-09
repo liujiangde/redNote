@@ -5,6 +5,11 @@ export function communityApiError(error: CommunityServiceError) {
   // 服务层只表达业务失败类型，HTTP 状态码和 API error code 在 Route Handler 边界统一转换。
   // 这样 Web Server Action 可以继续静默处理重复提交，移动端则能拿到明确错误响应。
   switch (error.code) {
+    case "FORBIDDEN":
+      return apiError(apiErrorCodes.FORBIDDEN, error.message, {
+        details: error.details,
+        status: 403,
+      });
     case "NOT_FOUND":
       return apiError(apiErrorCodes.NOT_FOUND, error.message, {
         details: error.details,

@@ -104,7 +104,7 @@ M1.5 基础版已经落地：
 | `/` | `src/app/(site)/page.tsx` | 推荐 Feed 和趋势话题 |
 | `/search` | `src/app/(site)/search/page.tsx` | 搜索结果页，已接入 Prisma 关键词查询 |
 | `/publish` | `src/app/(site)/publish/page.tsx` | 发布表单骨架 |
-| `/notes/[noteId]` | `src/app/(site)/notes/[noteId]/page.tsx` | 笔记详情页，支持点赞、收藏和一级评论 |
+| `/notes/[noteId]` | `src/app/(site)/notes/[noteId]/page.tsx` | 笔记详情页，支持点赞、收藏、评论、回复、删除和举报 |
 | `/users/[handle]` | `src/app/(site)/users/[handle]/page.tsx` | 用户主页，支持关注和取消关注 |
 | `/notifications` | `src/app/(site)/notifications/page.tsx` | 通知中心，支持未读数、筛选、分页和标记已读 |
 | `/login` | `src/app/(auth)/login/page.tsx` | 登录页 UI |
@@ -121,6 +121,7 @@ M1.5 基础版已经落地：
 | `/api/v1/notes/[noteId]/like` | `src/app/api/v1/notes/[noteId]/like/route.ts` | 移动端点赞/取消点赞 toggle |
 | `/api/v1/notes/[noteId]/favorite` | `src/app/api/v1/notes/[noteId]/favorite/route.ts` | 移动端收藏/取消收藏 toggle |
 | `/api/v1/notes/[noteId]/comments` | `src/app/api/v1/notes/[noteId]/comments/route.ts` | 移动端创建一级评论或回复 |
+| `/api/v1/comments/[commentId]` | `src/app/api/v1/comments/[commentId]/route.ts` | 移动端删除自己的评论或举报评论 |
 | `/api/v1/users/[handle]/follow` | `src/app/api/v1/users/[handle]/follow/route.ts` | 移动端关注/取消关注 toggle |
 | `/api/v1/notifications` | `src/app/api/v1/notifications/route.ts` | 跨端通知 API，支持列表和标记已读 |
 
@@ -266,11 +267,12 @@ node --input-type=module -e "import 'dotenv/config'; import pg from 'pg'; const 
 
 M3 互动写流程集中在 `src/lib/community-service.ts`，Web 页面和移动端 API 复用同一套业务规则：
 
-- 服务层：`toggleNoteLike`、`toggleNoteFavorite`、`createNoteComment`、`toggleUserFollow` 统一处理已发布笔记校验、父评论归属校验、不能关注自己、风控、数据库写入和通知写入。
+- 服务层：`toggleNoteLike`、`toggleNoteFavorite`、`createNoteComment`、`deleteComment`、`reportComment`、`toggleUserFollow` 统一处理已发布笔记校验、父评论归属校验、不能关注自己、风控、数据库写入和通知写入。
 - Web 页面：`src/lib/community-actions.ts` 只负责登录跳转、表单参数适配和 `revalidatePath` 刷新，保持无 JS 表单仍可提交。
 - 移动端 API：`src/app/api/v1/notes/[noteId]/*` 和 `src/app/api/v1/users/[handle]/follow` 只负责 session 认证、JSON 校验和统一响应 envelope。
 - 点赞/收藏/关注：都是 toggle 语义，已存在则取消，不存在则创建；响应返回最新状态和计数，方便 App 立即刷新按钮。
 - 评论/回复：正文限制 1-1000 字；`parentId` 为空创建一级评论，传入一级评论 id 时创建二级回复；服务端不会信任客户端传来的跨笔记 parentId。
+- 删除/举报：评论作者可以把自己的评论软删除为 `DELETED`，其他用户可以举报可见评论并写入 `Report`。
 - 刷新：Web 互动完成后刷新首页、搜索页、笔记详情页和相关用户主页，保证计数、按钮状态和评论列表刷新后保持一致。
 
 M3.1 通知中心流程：
@@ -291,7 +293,15 @@ M3.1 评论区基础增强：
 - 权限：回复写入不会信任前端传来的 `parentId`，服务端会验证父评论必须属于当前已发布笔记且必须是一级评论。
 - 通知：一级评论通知笔记作者；二级回复通知被回复评论作者；自己回复自己的内容不会创建自通知。
 
-当前评论删除/隐藏、举报入口、管理员处理和敏感词审核还没有实现，会在 M3.1 后续和 M5 治理阶段继续补齐。
+M3.1 评论治理基础版：
+
+- 数据模型：`CommentStatus` 区分 `VISIBLE`、`HIDDEN`、`DELETED`；公开详情页只读取 `VISIBLE` 评论和回复。
+- 作者删除：详情页删除按钮和 `DELETE /api/v1/comments/[commentId]` 都只允许评论作者软删除自己的可见评论。
+- 评论举报：详情页举报按钮和 `POST /api/v1/comments/[commentId]` 都只允许举报可见评论，会写入 `ReportTargetType.COMMENT` 举报。
+- 后台处理：`/admin/reports` 对评论举报支持标记处理中、隐藏评论并解决、驳回举报；处理动作写入 `AdminAuditLog`，并给举报人写入 `REPORT_UPDATE` 通知。
+- 审核隐藏：管理员隐藏一级评论时会同步隐藏其回复，避免回复脱离上下文；普通读链路不展示 `HIDDEN` 或 `DELETED` 评论。
+
+当前评论恢复、批量处理、举报详情页、敏感词审核和移动端举报列表还没有实现，会在 M3.1 后续和 M5 治理阶段继续补齐。
 
 M3.1 互动风控基础版：
 
@@ -310,6 +320,7 @@ M3.1 移动端互动 API：
 - 点赞：`POST /api/v1/notes/[noteId]/like`，返回 `liked`、`likeCount`、真实 `noteId` 和 `slug`。
 - 收藏：`POST /api/v1/notes/[noteId]/favorite`，返回 `favorited`、`favoriteCount`、真实 `noteId` 和 `slug`。
 - 评论：`POST /api/v1/notes/[noteId]/comments`，请求体为 `{ "content": "...", "parentId": "可选一级评论 id" }`，返回新评论、评论总数和笔记标识。
+- 评论治理：`DELETE /api/v1/comments/[commentId]` 删除自己的评论；`POST /api/v1/comments/[commentId]` 用 `{ "reason": "...", "detail": "可选说明" }` 举报评论。
 - 关注：`POST /api/v1/users/[handle]/follow`，返回 `following`、`followerCount` 和目标用户基础信息。
 - 错误：未登录返回 `UNAUTHORIZED/401`，频控命中返回 `RATE_LIMITED/429`，参数错误返回 `VALIDATION_ERROR/400`，目标不存在返回 `NOT_FOUND/404`。
 

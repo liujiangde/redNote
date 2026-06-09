@@ -6,7 +6,13 @@ import { Bookmark, Heart, MessageCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getCurrentSession } from "@/lib/auth-boundary";
-import { createComment, toggleFavorite, toggleLike } from "@/lib/community-actions";
+import {
+  createComment,
+  deleteOwnComment,
+  reportVisibleComment,
+  toggleFavorite,
+  toggleLike,
+} from "@/lib/community-actions";
 import { getPublishedNoteDetail } from "@/lib/content-data";
 
 function buildCommentPageHref(noteId: string, cursor: string | null) {
@@ -16,6 +22,33 @@ function buildCommentPageHref(noteId: string, cursor: string | null) {
   }
 
   return `/notes/${noteId}?commentCursor=${encodeURIComponent(cursor)}`;
+}
+
+function CommentGovernanceControls({
+  commentId,
+  isOwn,
+}: {
+  commentId: string;
+  isOwn: boolean;
+}) {
+  if (isOwn) {
+    return (
+      <form action={deleteOwnComment.bind(null, commentId)}>
+        <Button className="h-8 px-2 text-xs" type="submit" variant="ghost">
+          删除
+        </Button>
+      </form>
+    );
+  }
+
+  return (
+    <form action={reportVisibleComment.bind(null, commentId)}>
+      <input name="reason" type="hidden" value="评论内容违规" />
+      <Button className="h-8 px-2 text-xs" type="submit" variant="ghost">
+        举报
+      </Button>
+    </form>
+  );
 }
 
 export default async function NoteDetailPage({
@@ -91,88 +124,110 @@ export default async function NoteDetailPage({
             </Link>
           )}
           <div className="mt-5 space-y-4">
-            {note.commentsList.map((comment) => (
-              <div className="border-t border-slate-100 pt-4" key={comment.id}>
-                <div className="flex items-start gap-3">
-                  <Image
-                    src={comment.author.avatarUrl}
-                    alt={comment.author.name}
-                    width={36}
-                    height={36}
-                    className="h-9 w-9 rounded-full object-cover"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Link
-                        className="font-medium text-slate-900"
-                        href={`/users/${comment.author.handle}`}
-                      >
-                        {comment.author.name}
-                      </Link>
-                      <span className="text-xs text-slate-400">{comment.createdAt}</span>
-                    </div>
-                    <p className="mt-1 whitespace-pre-line text-sm leading-6 text-slate-600">
-                      {comment.content}
-                    </p>
-                    {comment.replies.length > 0 && (
-                      // 每条一级评论只展示最近几条回复；完整楼中楼后续用独立分页 API 承接。
-                      <div className="mt-3 space-y-3 rounded-lg bg-slate-50 p-3">
-                        {comment.replies.map((reply) => (
-                          <div className="flex items-start gap-2" key={reply.id}>
-                            <Image
-                              src={reply.author.avatarUrl}
-                              alt={reply.author.name}
-                              width={28}
-                              height={28}
-                              className="h-7 w-7 rounded-full object-cover"
-                            />
-                            <div className="min-w-0 flex-1">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <Link
-                                  className="text-sm font-medium text-slate-800"
-                                  href={`/users/${reply.author.handle}`}
-                                >
-                                  {reply.author.name}
-                                </Link>
-                                <span className="text-xs text-slate-400">{reply.createdAt}</span>
-                              </div>
-                              <p className="mt-1 whitespace-pre-line text-sm leading-6 text-slate-600">
-                                {reply.content}
-                              </p>
-                            </div>
-                          </div>
-                        ))}
-                        {comment.replyCount > comment.replies.length && (
-                          <p className="text-xs text-slate-400">
-                            还有 {comment.replyCount - comment.replies.length} 条更早回复暂未展开。
-                          </p>
+            {note.commentsList.map((comment) => {
+              const isOwnComment = session?.user.id === comment.author.id;
+
+              return (
+                <div className="border-t border-slate-100 pt-4" key={comment.id}>
+                  <div className="flex items-start gap-3">
+                    <Image
+                      src={comment.author.avatarUrl}
+                      alt={comment.author.name}
+                      width={36}
+                      height={36}
+                      className="h-9 w-9 rounded-full object-cover"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Link
+                          className="font-medium text-slate-900"
+                          href={`/users/${comment.author.handle}`}
+                        >
+                          {comment.author.name}
+                        </Link>
+                        <span className="text-xs text-slate-400">{comment.createdAt}</span>
+                        {session?.user && (
+                          <CommentGovernanceControls
+                            commentId={comment.id}
+                            isOwn={isOwnComment}
+                          />
                         )}
                       </div>
-                    )}
-                    {session?.user && (
-                      // 回复表单额外绑定 comment.id；服务端会验证 parentId 属于当前笔记。
-                      <form
-                        action={createComment.bind(null, note.id, comment.id)}
-                        className="mt-3 space-y-2"
-                      >
-                        <textarea
-                          className="min-h-16 w-full resize-y rounded-lg border border-slate-200 px-3 py-2 text-sm leading-6 outline-none focus:border-rose-300 focus:ring-2 focus:ring-rose-100"
-                          maxLength={1000}
-                          name="content"
-                          placeholder={`回复 ${comment.author.name}`}
-                          required
-                        />
-                        <div className="flex justify-end">
-                          <Button type="submit" variant="secondary">
-                            回复
-                          </Button>
+                      <p className="mt-1 whitespace-pre-line text-sm leading-6 text-slate-600">
+                        {comment.content}
+                      </p>
+                      {comment.replies.length > 0 && (
+                        // 每条一级评论只展示最近几条回复；完整楼中楼后续用独立分页 API 承接。
+                        <div className="mt-3 space-y-3 rounded-lg bg-slate-50 p-3">
+                          {comment.replies.map((reply) => {
+                            const isOwnReply = session?.user.id === reply.author.id;
+
+                            return (
+                              <div className="flex items-start gap-2" key={reply.id}>
+                                <Image
+                                  src={reply.author.avatarUrl}
+                                  alt={reply.author.name}
+                                  width={28}
+                                  height={28}
+                                  className="h-7 w-7 rounded-full object-cover"
+                                />
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <Link
+                                      className="text-sm font-medium text-slate-800"
+                                      href={`/users/${reply.author.handle}`}
+                                    >
+                                      {reply.author.name}
+                                    </Link>
+                                    <span className="text-xs text-slate-400">
+                                      {reply.createdAt}
+                                    </span>
+                                    {session?.user && (
+                                      <CommentGovernanceControls
+                                        commentId={reply.id}
+                                        isOwn={isOwnReply}
+                                      />
+                                    )}
+                                  </div>
+                                  <p className="mt-1 whitespace-pre-line text-sm leading-6 text-slate-600">
+                                    {reply.content}
+                                  </p>
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {comment.replyCount > comment.replies.length && (
+                            <p className="text-xs text-slate-400">
+                              还有 {comment.replyCount - comment.replies.length} 条更早回复暂未展开。
+                            </p>
+                          )}
                         </div>
-                      </form>
-                    )}
+                      )}
+                      {session?.user && (
+                        // 回复表单额外绑定 comment.id；服务端会验证 parentId 属于当前笔记。
+                        <form
+                          action={createComment.bind(null, note.id, comment.id)}
+                          className="mt-3 space-y-2"
+                        >
+                          <textarea
+                            className="min-h-16 w-full resize-y rounded-lg border border-slate-200 px-3 py-2 text-sm leading-6 outline-none focus:border-rose-300 focus:ring-2 focus:ring-rose-100"
+                            maxLength={1000}
+                            name="content"
+                            placeholder={`回复 ${comment.author.name}`}
+                            required
+                          />
+                          <div className="flex justify-end">
+                            <Button type="submit" variant="secondary">
+                              回复
+                            </Button>
+                          </div>
+                        </form>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
             {!note.commentsList.length && (
               <p className="border-t border-slate-100 pt-4 text-sm text-slate-500">
                 还没有评论，来写第一条。

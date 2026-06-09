@@ -3,6 +3,7 @@ import net from "node:net";
 import { connection } from "next/server";
 
 import {
+  CommentStatus,
   NoteStatus,
   Prisma,
   ReportStatus,
@@ -71,12 +72,17 @@ const noteCardInclude = {
     select: {
       likes: true,
       favorites: true,
-      comments: true,
+      comments: {
+        where: {
+          status: CommentStatus.VISIBLE,
+        },
+      },
     },
   },
 } satisfies Prisma.NoteInclude;
 
 const commentAuthorSelect = {
+  id: true,
   name: true,
   handle: true,
   avatarUrl: true,
@@ -91,6 +97,9 @@ const noteDetailCommentInclude = {
   // 回复预览只取每条一级评论下最近 3 条，避免详情页一次展开完整楼中楼。
   // 后续如果回复量增长，应为单条评论增加独立的 replies cursor API。
   replies: {
+    where: {
+      status: CommentStatus.VISIBLE,
+    },
     orderBy: {
       createdAt: "desc",
     },
@@ -105,7 +114,11 @@ const noteDetailCommentInclude = {
   },
   _count: {
     select: {
-      replies: true,
+      replies: {
+        where: {
+          status: CommentStatus.VISIBLE,
+        },
+      },
     },
   },
 } satisfies Prisma.CommentInclude;
@@ -143,6 +156,7 @@ function createNoteDetailInclude({
     comments: {
       where: {
         parentId: null,
+        status: CommentStatus.VISIBLE,
       },
       // createdAt + id 双字段排序让 cursor 分页更稳定，避免同一时间创建的评论顺序抖动。
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
@@ -200,6 +214,7 @@ export type CommentReplyData = {
   content: string;
   createdAt: string;
   author: {
+    id: string;
     name: string;
     handle: string;
     avatarUrl: string;
@@ -236,7 +251,10 @@ export type AdminNoteRow = {
 };
 
 export type AdminReportRow = {
+  commentId: string | null;
   id: string;
+  detail: string | null;
+  resolution: string | null;
   target: string;
   targetType: string;
   reporterName: string;
@@ -417,11 +435,13 @@ function toNoteCard(note: NoteCardRecord): NoteCardData {
 }
 
 function toCommentAuthor(author: {
+  id: string;
   name: string;
   handle: string;
   avatarUrl: string | null;
 }) {
   return {
+    id: author.id,
     name: author.name,
     handle: author.handle,
     avatarUrl: author.avatarUrl ?? DEFAULT_AVATAR_URL,
@@ -835,7 +855,11 @@ export async function getAdminMetrics() {
           }),
           db.like.count(),
           db.favorite.count(),
-          db.comment.count(),
+          db.comment.count({
+            where: {
+              status: CommentStatus.VISIBLE,
+            },
+          }),
         ]);
 
       const interactionCount = likeCount + favoriteCount + commentCount;
@@ -896,7 +920,7 @@ export async function getAdminNotes() {
 function getReportTarget(report: {
   targetType: ReportTargetType;
   note: { title: string } | null;
-  comment: { content: string } | null;
+  comment: { content: string; status: CommentStatus } | null;
   reportedUser: { name: string; handle: string } | null;
 }) {
   if (report.targetType === ReportTargetType.NOTE && report.note) {
@@ -904,7 +928,10 @@ function getReportTarget(report: {
   }
 
   if (report.targetType === ReportTargetType.COMMENT && report.comment) {
-    return truncateText(report.comment.content, 32);
+    const statusLabel =
+      report.comment.status === CommentStatus.VISIBLE ? "" : `（${report.comment.status}）`;
+
+    return `${truncateText(report.comment.content, 32)}${statusLabel}`;
   }
 
   if (report.targetType === ReportTargetType.USER && report.reportedUser) {
@@ -935,7 +962,9 @@ export async function getAdminReports(limit = 50) {
           },
           comment: {
             select: {
+              id: true,
               content: true,
+              status: true,
             },
           },
           reportedUser: {
@@ -951,6 +980,9 @@ export async function getAdminReports(limit = 50) {
 
       return reports.map((report): AdminReportRow => ({
         id: report.id,
+        commentId: report.comment?.id ?? null,
+        detail: report.detail,
+        resolution: report.resolution,
         target: getReportTarget(report),
         targetType: report.targetType,
         reporterName: report.reporter.name,
@@ -961,7 +993,10 @@ export async function getAdminReports(limit = 50) {
     },
     () =>
       fixtureModerationQueue.slice(0, limit).map((report): AdminReportRow => ({
+        commentId: null,
+        detail: null,
         id: report.id,
+        resolution: null,
         target: report.target,
         targetType: ReportTargetType.NOTE,
         reporterName: "Fixture",

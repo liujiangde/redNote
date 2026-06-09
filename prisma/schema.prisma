@@ -20,6 +20,12 @@ enum NoteStatus {
   ARCHIVED
 }
 
+enum CommentStatus {
+  VISIBLE
+  HIDDEN
+  DELETED
+}
+
 enum ReportStatus {
   OPEN
   REVIEWING
@@ -110,20 +116,25 @@ model NoteImage {
 }
 
 model Comment {
-  id        String    @id @default(cuid())
-  noteId    String    @map("note_id")
-  note      Note      @relation(fields: [noteId], references: [id], onDelete: Cascade)
-  authorId  String    @map("author_id")
-  author    User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  parentId  String?   @map("parent_id")
-  parent    Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
-  replies   Comment[] @relation("CommentReplies")
-  content   String    @db.Text
-  reports   Report[]  @relation("ReportComment")
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt @map("updated_at")
+  id               String        @id @default(cuid())
+  noteId           String        @map("note_id")
+  note             Note          @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  authorId         String        @map("author_id")
+  author           User          @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  parentId         String?       @map("parent_id")
+  parent           Comment?      @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies          Comment[]     @relation("CommentReplies")
+  content          String        @db.Text
+  status           CommentStatus @default(VISIBLE)
+  deletedAt        DateTime?     @map("deleted_at")
+  hiddenAt         DateTime?     @map("hidden_at")
+  moderationReason String?       @map("moderation_reason") @db.Text
+  reports          Report[]      @relation("ReportComment")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
 
   @@index([noteId, createdAt])
+  @@index([noteId, status, createdAt])
   @@index([authorId])
   @@map("comments")
 }
@@ -241,13 +252,13 @@ model AdminAuditLog {
 }
 
 model NoteEmbedding {
-  noteId     String                    @id @map("note_id")
-  note       Note                      @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  noteId     String                      @id @map("note_id")
+  note       Note                        @relation(fields: [noteId], references: [id], onDelete: Cascade)
   embedding  Unsupported("vector(1536)")
-  model      String                    @default("text-embedding-3-small")
-  sourceText String                    @map("source_text") @db.Text
-  createdAt  DateTime                  @default(now()) @map("created_at")
-  updatedAt  DateTime                  @updatedAt @map("updated_at")
+  model      String                      @default("text-embedding-3-small")
+  sourceText String                      @map("source_text") @db.Text
+  createdAt  DateTime                    @default(now()) @map("created_at")
+  updatedAt  DateTime                    @updatedAt @map("updated_at")
 
   @@map("note_embeddings")
 }

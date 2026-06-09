@@ -1,6 +1,12 @@
 import { z } from "zod";
 
-import { NoteStatus, NotificationType } from "@/generated/prisma/client";
+import {
+  CommentStatus,
+  NoteStatus,
+  NotificationType,
+  ReportStatus,
+  ReportTargetType,
+} from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import { enforceInteractionGuard } from "@/lib/interaction-guard";
 
@@ -8,10 +14,16 @@ export const commentSchema = z.object({
   content: z.string().trim().min(1).max(1000),
 });
 
+export const commentReportSchema = z.object({
+  reason: z.string().trim().min(2).max(120),
+  detail: z.string().trim().max(1000).optional(),
+});
+
 export type CommunityActor = {
   handle: string;
   id: string;
   name?: string | null;
+  role?: string | null;
 };
 
 export type PublishedNoteTarget = {
@@ -25,7 +37,7 @@ export type PublishedNoteTarget = {
   title: string;
 };
 
-type ServiceErrorCode = "NOT_FOUND" | "RATE_LIMITED" | "VALIDATION_ERROR";
+type ServiceErrorCode = "FORBIDDEN" | "NOT_FOUND" | "RATE_LIMITED" | "VALIDATION_ERROR";
 
 export type CommunityServiceError = {
   code: ServiceErrorCode;
@@ -61,6 +73,10 @@ function communityError(
 function actorDisplayName(actor: CommunityActor) {
   // NextAuth 的 name 可能为空；通知文案统一回退到 handle，避免移动端看到 undefined。
   return actor.name?.trim() || actor.handle;
+}
+
+function canModerate(actor: CommunityActor) {
+  return actor.role === "ADMIN" || actor.role === "SUPER_ADMIN";
 }
 
 export async function getPublishedNoteTarget(noteIdOrSlug: string) {
@@ -99,10 +115,97 @@ async function getReplyParentComment({
       id: parentId,
       noteId,
       parentId: null,
+      status: CommentStatus.VISIBLE,
     },
     select: {
       authorId: true,
       id: true,
+    },
+  });
+}
+
+async function getVisibleCommentTarget(commentId: string) {
+  // 评论治理只对公开可见评论开放。隐藏/删除后的评论不再允许普通用户删除或举报。
+  return db.comment.findFirst({
+    where: {
+      id: commentId,
+      status: CommentStatus.VISIBLE,
+      note: {
+        status: NoteStatus.PUBLISHED,
+      },
+    },
+    select: {
+      authorId: true,
+      content: true,
+      id: true,
+      noteId: true,
+      parentId: true,
+      author: {
+        select: {
+          handle: true,
+          name: true,
+        },
+      },
+      note: {
+        select: {
+          author: {
+            select: {
+              handle: true,
+              name: true,
+            },
+          },
+          authorId: true,
+          id: true,
+          slug: true,
+          title: true,
+        },
+      },
+    },
+  });
+}
+
+type VisibleCommentTarget = NonNullable<Awaited<ReturnType<typeof getVisibleCommentTarget>>>;
+
+function noteTargetFromComment(comment: VisibleCommentTarget): PublishedNoteTarget {
+  return {
+    author: comment.note.author,
+    authorId: comment.note.authorId,
+    id: comment.note.id,
+    slug: comment.note.slug,
+    title: comment.note.title,
+  };
+}
+
+async function updateCommentThreadStatus({
+  comment,
+  moderationReason,
+  status,
+}: {
+  comment: VisibleCommentTarget;
+  moderationReason?: string;
+  status: CommentStatus;
+}) {
+  const timestamp = new Date();
+
+  // 当前只支持两层评论。隐藏/删除一级评论时同步处理其回复，避免回复脱离上下文。
+  const targetWhere = comment.parentId
+    ? {
+        id: comment.id,
+      }
+    : {
+        OR: [{ id: comment.id }, { parentId: comment.id }],
+      };
+
+  await db.comment.updateMany({
+    where: {
+      ...targetWhere,
+      status: CommentStatus.VISIBLE,
+    },
+    data: {
+      status,
+      ...(status === CommentStatus.DELETED ? { deletedAt: timestamp } : {}),
+      ...(status === CommentStatus.HIDDEN ? { hiddenAt: timestamp } : {}),
+      ...(moderationReason ? { moderationReason } : {}),
     },
   });
 }
@@ -403,6 +506,7 @@ export async function createNoteComment({
   const commentCount = await db.comment.count({
     where: {
       noteId: note.id,
+      status: CommentStatus.VISIBLE,
     },
   });
 
@@ -411,6 +515,248 @@ export async function createNoteComment({
       comment,
       commentCount,
       note,
+    },
+    ok: true,
+  };
+}
+
+export async function deleteComment({
+  actor,
+  commentId,
+}: {
+  actor: CommunityActor;
+  commentId: string;
+}): Promise<
+  CommunityServiceResult<{
+    commentId: string;
+    note: PublishedNoteTarget;
+  }>
+> {
+  const comment = await getVisibleCommentTarget(commentId);
+
+  if (!comment) {
+    return communityError("NOT_FOUND", "Comment was not found.");
+  }
+
+  if (comment.authorId !== actor.id) {
+    return communityError("FORBIDDEN", "You can only delete your own comment.");
+  }
+
+  await updateCommentThreadStatus({
+    comment,
+    status: CommentStatus.DELETED,
+  });
+
+  return {
+    data: {
+      commentId: comment.id,
+      note: noteTargetFromComment(comment),
+    },
+    ok: true,
+  };
+}
+
+export async function reportComment({
+  actor,
+  commentId,
+  detail,
+  reason,
+}: {
+  actor: CommunityActor;
+  commentId: string;
+  detail?: string;
+  reason: string;
+}): Promise<
+  CommunityServiceResult<{
+    report: {
+      id: string;
+      status: ReportStatus;
+    };
+  }>
+> {
+  const parsed = commentReportSchema.safeParse({
+    detail,
+    reason,
+  });
+
+  if (!parsed.success) {
+    return communityError("VALIDATION_ERROR", "Invalid report payload.", parsed.error.flatten());
+  }
+
+  const comment = await getVisibleCommentTarget(commentId);
+
+  if (!comment) {
+    return communityError("NOT_FOUND", "Comment was not found.");
+  }
+
+  if (comment.authorId === actor.id) {
+    return communityError("VALIDATION_ERROR", "You cannot report your own comment.");
+  }
+
+  const report = await db.report.create({
+    data: {
+      commentId: comment.id,
+      detail: parsed.data.detail || null,
+      noteId: comment.noteId,
+      reason: parsed.data.reason,
+      reportedUserId: comment.authorId,
+      reporterId: actor.id,
+      targetType: ReportTargetType.COMMENT,
+    },
+    select: {
+      id: true,
+      status: true,
+    },
+  });
+
+  return {
+    data: {
+      report,
+    },
+    ok: true,
+  };
+}
+
+export async function moderateCommentReport({
+  actor,
+  reportId,
+  resolution,
+  type,
+}: {
+  actor: CommunityActor;
+  reportId: string;
+  resolution?: string;
+  type: "hide" | "reject" | "review";
+}): Promise<
+  CommunityServiceResult<{
+    commentId: string | null;
+    note: PublishedNoteTarget | null;
+    reportId: string;
+    status: ReportStatus;
+  }>
+> {
+  if (!canModerate(actor)) {
+    return communityError("FORBIDDEN", "Admin permission is required.");
+  }
+
+  const report = await db.report.findUnique({
+    where: {
+      id: reportId,
+    },
+    include: {
+      comment: {
+        select: {
+          authorId: true,
+          content: true,
+          id: true,
+          noteId: true,
+          parentId: true,
+          status: true,
+          author: {
+            select: {
+              handle: true,
+              name: true,
+            },
+          },
+          note: {
+            select: {
+              author: {
+                select: {
+                  handle: true,
+                  name: true,
+                },
+              },
+              authorId: true,
+              id: true,
+              slug: true,
+              title: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!report) {
+    return communityError("NOT_FOUND", "Report was not found.");
+  }
+
+  if (report.targetType !== ReportTargetType.COMMENT) {
+    return communityError("VALIDATION_ERROR", "Only comment reports can be moderated here.");
+  }
+
+  const trimmedResolution = resolution?.trim();
+  let status: ReportStatus;
+  let auditAction: string;
+  let note: PublishedNoteTarget | null = null;
+
+  if (type === "review") {
+    status = ReportStatus.REVIEWING;
+    auditAction = "REPORT_MARK_REVIEWING";
+  } else if (type === "reject") {
+    status = ReportStatus.REJECTED;
+    auditAction = "REPORT_REJECT";
+  } else {
+    status = ReportStatus.RESOLVED;
+    auditAction = "COMMENT_HIDE_FROM_REPORT";
+  }
+
+  if (type === "hide" && report.comment?.status === CommentStatus.VISIBLE) {
+    await updateCommentThreadStatus({
+      comment: report.comment,
+      moderationReason: trimmedResolution || report.reason,
+      status: CommentStatus.HIDDEN,
+    });
+  }
+
+  if (report.comment) {
+    note = noteTargetFromComment(report.comment);
+  }
+
+  const updatedReport = await db.report.update({
+    where: {
+      id: report.id,
+    },
+    data: {
+      resolution: trimmedResolution || null,
+      status,
+    },
+    select: {
+      id: true,
+      status: true,
+    },
+  });
+
+  await db.adminAuditLog.create({
+    data: {
+      action: auditAction,
+      actorId: actor.id,
+      entityId: report.id,
+      entityType: "REPORT",
+      metadata: {
+        commentId: report.commentId,
+        decision: type,
+        resolution: trimmedResolution ?? null,
+        targetType: report.targetType,
+      },
+    },
+  });
+
+  await createNotificationIfNeeded({
+    actorId: actor.id,
+    body: trimmedResolution || "你的举报已有处理结果。",
+    href: "/notifications",
+    recipientId: report.reporterId,
+    title: type === "reject" ? "你的举报未被采纳" : "你的举报已处理",
+    type: NotificationType.REPORT_UPDATE,
+  });
+
+  return {
+    data: {
+      commentId: report.commentId,
+      note,
+      reportId: updatedReport.id,
+      status: updatedReport.status,
     },
     ok: true,
   };
