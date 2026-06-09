@@ -11,6 +11,7 @@ export async function POST(
 ) {
   // POST /api/v1/users/:handle/block 是屏蔽 toggle：未屏蔽则屏蔽，已屏蔽则取消屏蔽。
   // 创建屏蔽时会自动切断双方关注关系，避免社交图谱继续连接。
+  // 这个接口不接受 body，目标用户完全由 URL handle 决定，避免客户端伪造 blockedId。
   const session = await getApiSession();
 
   if (!session) {

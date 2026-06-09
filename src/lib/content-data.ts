@@ -351,6 +351,7 @@ type ViewerContentFilter = {
 };
 
 async function getViewerContentFilter(viewerId: string | undefined): Promise<ViewerContentFilter> {
+  // viewerId 为空代表游客访问，游客只能应用“公开内容”过滤，不能应用个人屏蔽/不感兴趣。
   if (!viewerId) {
     return {
       dismissedNoteIds: [],
@@ -396,6 +397,8 @@ async function getViewerContentFilter(viewerId: string | undefined): Promise<Vie
 }
 
 function createViewerNoteWhere(filter: ViewerContentFilter): Prisma.NoteWhereInput {
+  // Prisma 的 where 需要对象拼装。这里把“屏蔽作者”和“不感兴趣笔记”
+  // 转成统一 AND 条件，Feed、搜索、详情和主页作品列表都复用同一口径。
   const clauses: Prisma.NoteWhereInput[] = [];
 
   if (filter.hiddenAuthorIds.length) {
@@ -418,6 +421,9 @@ function createViewerNoteWhere(filter: ViewerContentFilter): Prisma.NoteWhereInp
 }
 
 async function getViewerBlockState(viewerId: string | undefined, targetUserId: string) {
+  // 用户主页需要区分两个方向：
+  // - viewerBlocksTarget：我屏蔽了对方，页面仍可打开，方便取消屏蔽。
+  // - targetBlocksViewer：对方屏蔽了我，页面直接不可见。
   if (!viewerId || viewerId === targetUserId) {
     return {
       targetBlocksViewer: false,
@@ -522,6 +528,8 @@ function getFixtureTopics(limit = 5) {
 function toNoteCard(note: NoteCardRecord): NoteCardData {
   const image = note.images[0];
 
+  // 数据库字段通常是 normalized 结构，页面需要扁平 DTO。
+  // 这里统一补默认图、默认头像、截断摘要和互动计数，页面组件就不用了解 Prisma include。
   return {
     id: note.id,
     title: note.title,
@@ -583,6 +591,8 @@ function toNoteDetail(
   viewerState: { hasLiked: boolean; hasFavorited: boolean },
   commentLimit: number,
 ): NoteDetailData {
+  // 详情页 DTO 在卡片基础上增加完整正文、图片列表、当前用户互动状态和评论分页。
+  // 这样 NoteDetailPage 只负责布局，不直接读取 Prisma relation。
   const card = toNoteCard({
     ...note,
     images: note.images.slice(0, 1),
@@ -619,6 +629,7 @@ export async function getHomeFeedNotes(options: { limit?: number; viewerId?: str
       const viewerFilter = await getViewerContentFilter(options.viewerId);
       // 首页 Feed 只展示已发布内容。当前按发布时间倒序，后续推荐流可以在
       // 这个入口接入 Redis 候选池、推荐分排序或个性化过滤。
+      // viewerFilter 会在当前排序基础上先过滤屏蔽用户和不感兴趣笔记。
       const notes = await db.note.findMany({
         where: {
           ...createViewerNoteWhere(viewerFilter),
@@ -649,6 +660,7 @@ export async function searchPublishedNotes(
       const viewerFilter = await getViewerContentFilter(options.viewerId);
       // 第一版搜索覆盖标题、正文、作者和标签，保持查询结果仍然只返回公开内容。
       // 后续生活搜索可以在这里替换为全文索引、pgvector 语义召回或搜索服务。
+      // 搜索也应用 viewerFilter，避免用户在搜索里重新看到已屏蔽/不感兴趣内容。
       const notes = await db.note.findMany({
         where: {
           ...createViewerNoteWhere(viewerFilter),
@@ -715,6 +727,7 @@ export async function getPublishedNoteDetail(
     async () => {
       const viewerFilter = await getViewerContentFilter(options.viewerId);
       // 详情页允许用 id 或 slug 打开，但只展示已发布笔记，隐藏/草稿不对外暴露。
+      // 如果当前用户已把这篇笔记标为不感兴趣，或和作者存在屏蔽关系，这里会返回 null。
       const loadNote = (commentCursor?: string) =>
         db.note.findFirst({
           where: {
@@ -861,6 +874,7 @@ export async function getUserProfile(handle: string, options: { viewerId?: strin
       const blockState = await getViewerBlockState(options.viewerId, user.id);
 
       if (!isSelf && blockState.targetBlocksViewer) {
+        // 被对方屏蔽时，主页不可见；这和内容详情过滤保持一致。
         return null;
       }
 
@@ -894,6 +908,8 @@ export async function getUserProfile(handle: string, options: { viewerId?: strin
         notes: blockState.viewerBlocksTarget
           ? []
           : user.notes
+              // 主页作品也尊重“不感兴趣”，但不按 hiddenAuthorIds 过滤当前主页作者，
+              // 因为能进到这里说明没有被对方屏蔽，且用户可能需要查看主页后取消屏蔽。
               .filter((note) => !viewerFilter.dismissedNoteIds.includes(note.id))
               .map(toNoteCard),
       };

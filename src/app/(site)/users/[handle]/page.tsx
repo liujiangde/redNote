@@ -49,6 +49,7 @@ export default async function UserProfilePage({
           </div>
           {!user.isSelf && (
             <div className="grid gap-2 sm:min-w-32">
+              {/* 已屏蔽的用户不再展示关注按钮，避免“屏蔽但仍关注”的矛盾状态。 */}
               {!user.isBlockedByViewer && (
                 <form action={toggleFollow.bind(null, user.handle)}>
                   <Button
@@ -60,6 +61,7 @@ export default async function UserProfilePage({
                   </Button>
                 </form>
               )}
+              {/* 屏蔽按钮使用 toggleBlock：首次点击屏蔽，再次点击取消屏蔽。 */}
               <form action={toggleBlock.bind(null, user.handle)}>
                 <Button className="w-full" type="submit" variant="ghost">
                   <Ban className="h-4 w-4" />

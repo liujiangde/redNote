@@ -18,6 +18,7 @@ export async function POST(
 ) {
   // POST /api/v1/notes/:noteId/comments 是移动端评论/回复写入口。
   // parentId 为空时创建一级评论；传入 parentId 时 service 会校验父评论归属和层级。
+  // 敏感词、屏蔽关系、风控和通知都在 createNoteComment 中完成，这里不重复实现业务规则。
   const session = await getApiSession();
 
   if (!session) {

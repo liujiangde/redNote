@@ -12,6 +12,7 @@ export async function DELETE(
   context: RouteContext<"/api/v1/comments/[commentId]">,
 ) {
   // DELETE /api/v1/comments/:commentId 只允许评论作者删除自己的可见评论。
+  // 删除是软删除，公开读链路过滤非 VISIBLE 评论，后台仍能保留审计线索。
   const session = await getApiSession();
 
   if (!session) {
@@ -43,6 +44,7 @@ export async function POST(
   context: RouteContext<"/api/v1/comments/[commentId]">,
 ) {
   // POST /api/v1/comments/:commentId 创建评论举报，供移动端复用 Web 治理规则。
+  // 举报不会直接隐藏评论，管理员在 /admin/reports 决定 review/reject/hide。
   const session = await getApiSession();
 
   if (!session) {

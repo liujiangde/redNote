@@ -48,6 +48,7 @@ enum NotificationType {
   REPORT_UPDATE
 }
 
+/// 用户账号主体：既承载登录资料，也作为内容、互动、关注、通知和治理的关系中心。
 model User {
   id                     String          @id @default(cuid())
   email                  String          @unique
@@ -78,6 +79,7 @@ model User {
   @@map("users")
 }
 
+/// 图文笔记主体：只把结构化字段放在 Note，图片、标签、评论和向量都拆到独立表。
 model Note {
   id          String         @id @default(cuid())
   authorId    String         @map("author_id")
@@ -104,6 +106,7 @@ model Note {
   @@map("notes")
 }
 
+/// 笔记图片：一篇笔记可以有多张图，sortOrder 决定详情页和卡片图展示顺序。
 model NoteImage {
   id        String   @id @default(cuid())
   noteId    String   @map("note_id")
@@ -119,6 +122,7 @@ model NoteImage {
   @@map("note_images")
 }
 
+/// 评论模型：parentId 为空是一级评论，有 parentId 是二级回复；状态字段用于软删除和审核隐藏。
 model Comment {
   id               String        @id @default(cuid())
   noteId           String        @map("note_id")
@@ -143,6 +147,7 @@ model Comment {
   @@map("comments")
 }
 
+/// 点赞关系：使用 userId + noteId 复合主键，天然保证同一用户对同一笔记只能点赞一次。
 model Like {
   userId    String   @map("user_id")
   noteId    String   @map("note_id")
@@ -155,6 +160,7 @@ model Like {
   @@map("likes")
 }
 
+/// 收藏关系：和点赞一样是复合主键，但业务含义更偏长期偏好，可用于推荐排序。
 model Favorite {
   userId    String   @map("user_id")
   noteId    String   @map("note_id")
@@ -167,6 +173,7 @@ model Favorite {
   @@map("favorites")
 }
 
+/// 关注关系：followerId 关注 followingId，双向计数通过 UserFollowing/UserFollowers 两个 relation 读取。
 model Follow {
   followerId  String   @map("follower_id")
   followingId String   @map("following_id")
@@ -179,6 +186,7 @@ model Follow {
   @@map("follows")
 }
 
+/// 用户屏蔽关系：blocker 屏蔽 blocked；创建屏蔽时业务层会同步切断双方关注关系。
 model UserBlock {
   blockerId String   @map("blocker_id")
   blockedId String   @map("blocked_id")
@@ -191,6 +199,7 @@ model UserBlock {
   @@map("user_blocks")
 }
 
+/// 不感兴趣负反馈：只影响当前用户的 Feed/Search/详情读取，不改变笔记公开状态。
 model NoteDismissal {
   userId    String   @map("user_id")
   noteId    String   @map("note_id")
@@ -204,6 +213,7 @@ model NoteDismissal {
   @@map("note_dismissals")
 }
 
+/// 标签：当前用于内容归类和搜索过滤，后续可扩展为话题页、榜单和运营专题。
 model Tag {
   id        String    @id @default(cuid())
   name      String    @unique
@@ -214,6 +224,7 @@ model Tag {
   @@map("tags")
 }
 
+/// 笔记和标签的多对多关系表。
 model NoteTag {
   noteId String @map("note_id")
   tagId  String @map("tag_id")
@@ -225,6 +236,7 @@ model NoteTag {
   @@map("note_tags")
 }
 
+/// 站内通知：互动、关注、系统和举报处理结果都写入这里，readAt 为空表示未读。
 model Notification {
   id          String           @id @default(cuid())
   recipientId String           @map("recipient_id")
@@ -242,6 +254,7 @@ model Notification {
   @@map("notifications")
 }
 
+/// 举报记录：支持举报笔记、评论和用户，后台通过 status/resolution 完成处理闭环。
 model Report {
   id             String           @id @default(cuid())
   reporterId     String           @map("reporter_id")
@@ -265,6 +278,7 @@ model Report {
   @@map("reports")
 }
 
+/// 管理员操作审计：重要治理动作都写入这里，便于追踪谁在什么时候处理了什么对象。
 model AdminAuditLog {
   id         String   @id @default(cuid())
   actorId    String?  @map("actor_id")
@@ -280,6 +294,7 @@ model AdminAuditLog {
   @@map("admin_audit_logs")
 }
 
+/// 笔记向量：pgvector 存储语义 embedding，Prisma 暂用 Unsupported 映射。
 model NoteEmbedding {
   noteId     String                      @id @map("note_id")
   note       Note                        @relation(fields: [noteId], references: [id], onDelete: Cascade)

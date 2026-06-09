@@ -11,6 +11,10 @@ import { findSensitiveCommentTerms } from "@/lib/content-safety";
 import { db } from "@/lib/db";
 import { enforceInteractionGuard } from "@/lib/interaction-guard";
 
+// 社区互动服务层是 Web Server Action 和移动端 /api/v1 的共同业务入口：
+// 1. 这里只处理“业务是否允许”和“数据库怎么写”。
+// 2. 不做 redirect/revalidate，这些属于页面层职责。
+// 3. 所有失败都返回统一的 CommunityServiceResult，方便 API 转成 HTTP 错误。
 export const commentSchema = z.object({
   content: z.string().trim().min(1).max(1000),
 });
@@ -56,6 +60,8 @@ export type CommunityServiceResult<T> =
       ok: false;
     };
 
+// 服务层不直接抛可预期业务错误，而是返回 code/message。
+// 这样 Web 表单可以静默处理重复提交，移动端 API 可以返回明确状态码。
 function communityError(
   code: ServiceErrorCode,
   message: string,
@@ -107,6 +113,7 @@ async function getUserBlockState(actorId: string, targetUserId: string) {
 }
 
 async function ensureCanInteractWithUser(actorId: string, targetUserId: string) {
+  // 互动前统一检查屏蔽边界，避免点赞、收藏、评论、关注各自漏判断。
   const block = await getUserBlockState(actorId, targetUserId);
 
   if (!block) {
@@ -204,6 +211,7 @@ async function getVisibleCommentTarget(commentId: string) {
 type VisibleCommentTarget = NonNullable<Awaited<ReturnType<typeof getVisibleCommentTarget>>>;
 
 function noteTargetFromComment(comment: VisibleCommentTarget): PublishedNoteTarget {
+  // 评论删除/举报/审核后都需要刷新对应笔记详情页，因此把 comment.note 压成统一笔记目标。
   return {
     author: comment.note.author,
     authorId: comment.note.authorId,
@@ -263,6 +271,7 @@ async function createNotificationIfNeeded({
   type: NotificationType;
 }) {
   if (recipientId === actorId) {
+    // 用户操作自己的内容不生成通知，避免通知中心出现“你评论了自己”的噪声。
     return;
   }
 
@@ -291,6 +300,8 @@ export async function toggleNoteLike({
     note: PublishedNoteTarget;
   }>
 > {
+  // 点赞完整流程：
+  // 查公开笔记 -> 检查屏蔽关系 -> 执行互动风控 -> 按复合主键 toggle -> 必要时通知作者。
   const note = await getPublishedNoteTarget(noteIdOrSlug);
 
   if (!note) {
@@ -380,6 +391,7 @@ export async function toggleNoteFavorite({
     note: PublishedNoteTarget;
   }>
 > {
+  // 收藏和点赞类似，但收藏是更强的内容偏好信号；后续推荐排序可直接消费 favoriteCount。
   const note = await getPublishedNoteTarget(noteIdOrSlug);
 
   if (!note) {
@@ -478,6 +490,9 @@ export async function createNoteComment({
     note: PublishedNoteTarget;
   }>
 > {
+  // 评论写入顺序很重要：
+  // 先做结构校验和敏感词校验，再查笔记/父评论，最后进入频控和写库。
+  // 这样无效内容不会占用互动风控额度，也不会产生空通知。
   const parsed = commentSchema.safeParse({
     content,
   });
@@ -514,6 +529,7 @@ export async function createNoteComment({
     : null;
 
   if (parentId && !parentComment) {
+    // parentId 只接受当前笔记的一层评论，避免用户构造跨笔记回复或多层嵌套。
     return communityError("NOT_FOUND", "Parent comment was not found.");
   }
 
@@ -595,6 +611,8 @@ export async function deleteComment({
     note: PublishedNoteTarget;
   }>
 > {
+  // 删除采用软删除，不物理删除行：
+  // 评论仍保留给后台审计和举报追踪，公开读链路只过滤非 VISIBLE 状态。
   const comment = await getVisibleCommentTarget(commentId);
 
   if (!comment) {
@@ -637,6 +655,8 @@ export async function reportComment({
     };
   }>
 > {
+  // 举报只创建 Report，不直接隐藏内容。
+  // 是否隐藏由管理员在后台处理，避免普通用户通过批量举报直接下架内容。
   const parsed = commentReportSchema.safeParse({
     detail,
     reason,
@@ -698,6 +718,9 @@ export async function moderateCommentReport({
     status: ReportStatus;
   }>
 > {
+  // 后台评论举报处理有三种状态流转：
+  // review 进入处理中，reject 驳回举报，hide 隐藏评论并解决举报。
+  // 每次处理都写 AdminAuditLog，便于之后追踪管理员操作。
   if (!canModerate(actor)) {
     return communityError("FORBIDDEN", "Admin permission is required.");
   }
@@ -839,6 +862,8 @@ export async function dismissNote({
     note: PublishedNoteTarget;
   }>
 > {
+  // 不感兴趣是推荐负反馈，不改变 Note.status。
+  // 这样不会影响其他用户，只影响当前用户的发现、搜索和详情读取。
   const note = await getPublishedNoteTarget(noteIdOrSlug);
 
   if (!note) {
@@ -892,6 +917,8 @@ export async function toggleUserBlock({
     };
   }>
 > {
+  // 屏蔽是 toggle 语义，便于 Web 按钮和移动端一个接口处理屏蔽/取消屏蔽。
+  // 新增屏蔽时同时删除双向关注，保证社交图谱和可见性状态一致。
   const targetUser = await db.user.findUnique({
     where: {
       handle,
@@ -981,6 +1008,8 @@ export async function toggleUserFollow({
     };
   }>
 > {
+  // 关注也是 toggle 语义。屏蔽关系检查放在风控之前：
+  // 被屏蔽的双方不应该因为重复点击进入频控或产生通知。
   const targetUser = await db.user.findUnique({
     where: {
       handle,

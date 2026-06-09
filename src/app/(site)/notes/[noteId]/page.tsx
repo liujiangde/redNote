@@ -305,6 +305,7 @@ export default async function NoteDetailPage({
             评论 {note.comments}
           </div>
           {session?.user && (
+            // 不感兴趣写入 NoteDismissal，刷新后当前用户的 Feed/Search/详情都不再展示这篇笔记。
             <form action={markNoteNotInterested.bind(null, note.id)}>
               <input name="reason" type="hidden" value="不感兴趣" />
               <Button className="w-full" type="submit" variant="ghost">

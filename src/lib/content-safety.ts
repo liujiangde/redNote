@@ -13,6 +13,8 @@ const DEFAULT_SENSITIVE_TERMS = [
 ];
 
 function normalizeText(value: string) {
+  // 敏感词检查先去掉空白再小写化，避免“加 微 信”这类简单拆字绕过。
+  // 这只是 M3.1 基础拦截，后续 M5 应替换为可运营词库和更完整的审核服务。
   return value.trim().replace(/\s+/g, "").toLowerCase();
 }
 
@@ -29,6 +31,7 @@ function getConfiguredSensitiveTerms() {
 export function findSensitiveCommentTerms(content: string) {
   const normalizedContent = normalizeText(content);
 
+  // 返回命中的词只用于内部判断和调试，不直接暴露给普通用户，避免帮助绕过规则。
   return getConfiguredSensitiveTerms().filter((term) => {
     const normalizedTerm = normalizeText(term);
 

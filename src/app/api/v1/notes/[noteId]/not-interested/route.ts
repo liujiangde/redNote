@@ -18,6 +18,7 @@ export async function POST(
 ) {
   // POST /api/v1/notes/:noteId/not-interested 记录用户负反馈。
   // 它不会改动笔记本身，只影响该用户后续 Feed/Search/详情读取。
+  // 这里作为移动端/BFF 边界只做认证、JSON 校验和响应包装，业务写入交给 dismissNote。
   const session = await getApiSession();
 
   if (!session) {
@@ -29,6 +30,7 @@ export async function POST(
   const parsed = notInterestedSchema.safeParse(await request.json().catch(() => ({})));
 
   if (!parsed.success) {
+    // reason 是可选字段，但一旦传入就限制长度，避免负反馈表被大文本污染。
     return apiError(apiErrorCodes.VALIDATION_ERROR, "Invalid not-interested payload.", {
       details: parsed.error.flatten(),
       status: 400,

@@ -16,6 +16,11 @@ import {
   toggleUserFollow,
 } from "@/lib/community-service";
 
+// 这个文件是 Web 表单的 Server Action 边界：
+// - 负责把未登录用户 redirect 到登录页。
+// - 负责从 FormData 取字段。
+// - 负责在写入成功后 revalidate 页面。
+// 真正的业务校验和数据库写入都委托给 community-service.ts，避免 Web 和 /api/v1 逻辑分叉。
 function redirectToLogin(callbackUrl: string): never {
   redirect(`/login?callbackUrl=${encodeURIComponent(callbackUrl)}`);
 }
@@ -124,6 +129,7 @@ export async function createComment(
 }
 
 export async function deleteOwnComment(commentId: string) {
+  // 删除按钮不传 noteId，服务层会通过 commentId 找回所属笔记，并返回需要刷新的页面路径。
   const session = await requireUserOrRedirect("/");
   const result = await deleteComment({
     actor: session.user,
@@ -138,6 +144,7 @@ export async function deleteOwnComment(commentId: string) {
 }
 
 export async function reportVisibleComment(commentId: string, formData: FormData) {
+  // 举报入口来自公开评论区。Web 当前只传固定 reason，移动端 API 可以传更细 detail。
   const session = await requireUserOrRedirect("/");
   const reason = formData.get("reason");
   const detail = formData.get("detail");
@@ -163,6 +170,7 @@ export async function reportVisibleComment(commentId: string, formData: FormData
 }
 
 export async function markNoteNotInterested(noteIdOrSlug: string, formData?: FormData) {
+  // 不感兴趣是当前用户私有反馈。刷新详情页后，该笔记会因 viewerFilter 返回 404。
   const session = await requireUserOrRedirect(`/notes/${noteIdOrSlug}`);
   const reason = formData?.get("reason");
   const result = await dismissNote({
@@ -187,6 +195,7 @@ export async function markNoteNotInterested(noteIdOrSlug: string, formData?: For
 }
 
 export async function toggleBlock(handle: string) {
+  // 屏蔽/取消屏蔽复用一个按钮。服务层负责 toggle 和切断关注关系。
   const session = await requireUserOrRedirect(`/users/${handle}`);
   const result = await toggleUserBlock({
     actor: session.user,
