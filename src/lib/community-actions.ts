@@ -7,6 +7,7 @@ import { z } from "zod";
 import { NoteStatus, NotificationType } from "@/generated/prisma/client";
 import { AuthorizationError, requireUserSession } from "@/lib/auth-boundary";
 import { db } from "@/lib/db";
+import { enforceInteractionGuard } from "@/lib/interaction-guard";
 
 const commentSchema = z.object({
   content: z.string().trim().min(1).max(1000),
@@ -134,6 +135,17 @@ export async function toggleLike(noteIdOrSlug: string) {
     redirect("/");
   }
 
+  // 点赞是 toggle 操作，快速重复提交会把状态翻回去；风控层按用户+笔记做短冷却。
+  if (
+    !(await enforceInteractionGuard({
+      kind: "like",
+      targetId: note.id,
+      userId: session.user.id,
+    }))
+  ) {
+    return;
+  }
+
   const likeKey = {
     userId_noteId: {
       userId: session.user.id,
@@ -178,6 +190,17 @@ export async function toggleFavorite(noteIdOrSlug: string) {
 
   if (!note) {
     redirect("/");
+  }
+
+  // 收藏同样是 toggle 操作，先做目标冷却，避免用户双击造成收藏状态和预期相反。
+  if (
+    !(await enforceInteractionGuard({
+      kind: "favorite",
+      targetId: note.id,
+      userId: session.user.id,
+    }))
+  ) {
+    return;
   }
 
   const favoriteKey = {
@@ -262,6 +285,19 @@ export async function createComment(
     return;
   }
 
+  // 评论/回复使用用户+笔记/父评论作为目标，并把正文纳入重复内容检查。
+  // 这样既能限制刷屏，也能避免网络重试产生重复评论。
+  if (
+    !(await enforceInteractionGuard({
+      content: parsed.data.content,
+      kind: "comment",
+      targetId: parentComment?.id ?? note.id,
+      userId: session.user.id,
+    }))
+  ) {
+    return;
+  }
+
   await db.comment.create({
     data: {
       authorId: session.user.id,
@@ -313,6 +349,17 @@ export async function toggleFollow(handle: string) {
   }
 
   if (targetUser.id === session.user.id) {
+    return;
+  }
+
+  // 关注关系会影响社交图谱和通知，按目标用户做短冷却，并限制单位时间关注数量。
+  if (
+    !(await enforceInteractionGuard({
+      kind: "follow",
+      targetId: targetUser.id,
+      userId: session.user.id,
+    }))
+  ) {
     return;
   }
 
