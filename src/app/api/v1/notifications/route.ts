@@ -7,7 +7,7 @@ import {
   apiSuccess,
   parseCursorPagination,
 } from "@/lib/api-contract";
-import { getCurrentSession } from "@/lib/auth-boundary";
+import { getApiSession } from "@/lib/api-session";
 import { db } from "@/lib/db";
 import {
   getNotificationsForUser,
@@ -29,18 +29,6 @@ const markReadSchema = z
   .refine((value) => value.all === true || Boolean(value.ids?.length), {
     message: "Provide all=true or at least one notification id.",
   });
-
-async function getApiSession() {
-  // 当前 M3.1 API 先复用 Web NextAuth session。
-  // M8 移动端接入 token/session refresh 时，可以只替换这个认证入口。
-  const session = await getCurrentSession();
-
-  if (!session?.user) {
-    return null;
-  }
-
-  return session;
-}
 
 export async function GET(request: NextRequest) {
   // GET /api/v1/notifications 是跨端通知列表入口：

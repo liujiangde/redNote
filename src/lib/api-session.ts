@@ -1,0 +1,13 @@
+import { getCurrentSession } from "@/lib/auth-boundary";
+
+export async function getApiSession() {
+  // 当前 M3.1 API 先复用 Web NextAuth session。
+  // M8 移动端接入 token/session refresh 时，可以只替换这个认证入口。
+  const session = await getCurrentSession();
+
+  if (!session?.user) {
+    return null;
+  }
+
+  return session;
+}

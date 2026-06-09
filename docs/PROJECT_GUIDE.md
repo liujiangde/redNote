@@ -118,6 +118,10 @@ M1.5 基础版已经落地：
 | `/api/v1/feed` | `src/app/api/v1/feed/route.ts` | 跨端 Feed API 预留 |
 | `/api/v1/search` | `src/app/api/v1/search/route.ts` | 跨端搜索 API 预留 |
 | `/api/v1/uploads` | `src/app/api/v1/uploads/route.ts` | 登录用户图片预签名上传 |
+| `/api/v1/notes/[noteId]/like` | `src/app/api/v1/notes/[noteId]/like/route.ts` | 移动端点赞/取消点赞 toggle |
+| `/api/v1/notes/[noteId]/favorite` | `src/app/api/v1/notes/[noteId]/favorite/route.ts` | 移动端收藏/取消收藏 toggle |
+| `/api/v1/notes/[noteId]/comments` | `src/app/api/v1/notes/[noteId]/comments/route.ts` | 移动端创建一级评论或回复 |
+| `/api/v1/users/[handle]/follow` | `src/app/api/v1/users/[handle]/follow/route.ts` | 移动端关注/取消关注 toggle |
 | `/api/v1/notifications` | `src/app/api/v1/notifications/route.ts` | 跨端通知 API，支持列表和标记已读 |
 
 `(site)` 和 `(auth)` 是 App Router route group，不会出现在 URL 中。页面和布局默认是 Server Components，需要浏览器状态或事件处理时再添加 `"use client"`。
@@ -260,14 +264,14 @@ node --input-type=module -e "import 'dotenv/config'; import pg from 'pg'; const 
 - Feed、搜索、详情页、用户主页读取 Prisma 数据。
 - 后台指标、趋势标签、举报队列、笔记列表、用户列表读取真实表。
 
-M3 互动写流程集中在 `src/lib/community-actions.ts`：
+M3 互动写流程集中在 `src/lib/community-service.ts`，Web 页面和移动端 API 复用同一套业务规则：
 
-- 点赞：详情页提交 `toggleLike`，服务端校验登录态和已发布笔记，存在则取消，不存在则创建，并给笔记作者写入 `LIKE` 通知。
-- 收藏：详情页提交 `toggleFavorite`，流程与点赞一致，新增收藏时写入 `FAVORITE` 通知。
-- 评论：详情页提交 `createComment`，服务端校验 1-1000 字正文后创建一级评论，并写入 `COMMENT` 通知。
-- 回复：评论区回复表单复用 `createComment`，额外 bind 一级评论 `parentId`；服务端确认父评论属于当前笔记后创建二级回复，并通知被回复的评论作者。
-- 关注：用户主页提交 `toggleFollow`，不能关注自己，存在关系则取消，不存在则创建，并给被关注用户写入 `FOLLOW` 通知。
-- 刷新：互动完成后刷新首页、搜索页、笔记详情页和相关用户主页，保证计数、按钮状态和评论列表刷新后保持一致。
+- 服务层：`toggleNoteLike`、`toggleNoteFavorite`、`createNoteComment`、`toggleUserFollow` 统一处理已发布笔记校验、父评论归属校验、不能关注自己、风控、数据库写入和通知写入。
+- Web 页面：`src/lib/community-actions.ts` 只负责登录跳转、表单参数适配和 `revalidatePath` 刷新，保持无 JS 表单仍可提交。
+- 移动端 API：`src/app/api/v1/notes/[noteId]/*` 和 `src/app/api/v1/users/[handle]/follow` 只负责 session 认证、JSON 校验和统一响应 envelope。
+- 点赞/收藏/关注：都是 toggle 语义，已存在则取消，不存在则创建；响应返回最新状态和计数，方便 App 立即刷新按钮。
+- 评论/回复：正文限制 1-1000 字；`parentId` 为空创建一级评论，传入一级评论 id 时创建二级回复；服务端不会信任客户端传来的跨笔记 parentId。
+- 刷新：Web 互动完成后刷新首页、搜索页、笔记详情页和相关用户主页，保证计数、按钮状态和评论列表刷新后保持一致。
 
 M3.1 通知中心流程：
 
@@ -287,7 +291,7 @@ M3.1 评论区基础增强：
 - 权限：回复写入不会信任前端传来的 `parentId`，服务端会验证父评论必须属于当前已发布笔记且必须是一级评论。
 - 通知：一级评论通知笔记作者；二级回复通知被回复评论作者；自己回复自己的内容不会创建自通知。
 
-当前评论删除/隐藏、举报入口、管理员处理、评论限流和敏感词审核还没有实现，会在 M3.1 后续和 M5 治理阶段继续补齐。
+当前评论删除/隐藏、举报入口、管理员处理和敏感词审核还没有实现，会在 M3.1 后续和 M5 治理阶段继续补齐。
 
 M3.1 互动风控基础版：
 
@@ -300,11 +304,20 @@ M3.1 互动风控基础版：
 
 当前风控仍是基础版，尚未覆盖设备/IP 风险、黑名单、举报联动、敏感词审核和异常行为评分。这些会在 M3.1 后续和 M5 治理阶段继续补齐。
 
+M3.1 移动端互动 API：
+
+- 认证：当前复用 Web NextAuth session，认证入口集中在 `src/lib/api-session.ts`；M8 原生 App 接入前需要替换或扩展为 token/session refresh。
+- 点赞：`POST /api/v1/notes/[noteId]/like`，返回 `liked`、`likeCount`、真实 `noteId` 和 `slug`。
+- 收藏：`POST /api/v1/notes/[noteId]/favorite`，返回 `favorited`、`favoriteCount`、真实 `noteId` 和 `slug`。
+- 评论：`POST /api/v1/notes/[noteId]/comments`，请求体为 `{ "content": "...", "parentId": "可选一级评论 id" }`，返回新评论、评论总数和笔记标识。
+- 关注：`POST /api/v1/users/[handle]/follow`，返回 `following`、`followerCount` 和目标用户基础信息。
+- 错误：未登录返回 `UNAUTHORIZED/401`，频控命中返回 `RATE_LIMITED/429`，参数错误返回 `VALIDATION_ERROR/400`，目标不存在返回 `NOT_FOUND/404`。
+
 `src/lib/mock-data.ts` 作为 UI fixture 和开发兜底保留：当本地数据库端口不可达时，`content-data.ts` 会临时返回 fixture 数据，避免页面直接 500。数据库启动后会自动使用真实 Prisma 查询。后续新增页面应优先复用或扩展 `content-data.ts` 中的查询函数，避免页面组件直接堆叠复杂 Prisma include。
 
 当前核心读链路还没有正式缓存，详情页浏览量仍是同步数据库递增，搜索仍是简单关键词查询。这些实现适合 MVP，不适合大流量公开访问；后续优化时应优先处理缓存、分页、浏览量聚合和搜索索引。
 
-跨端 API 基础约定已经在 `src/lib/api-contract.ts` 中定义。当前 `/api/v1/feed`、`/api/v1/search` 和 `/api/v1/notifications` 返回统一 `ok/version/data` envelope 和 `pageInfo`。Feed/Search 的真实 cursor 查询会在 M4 推荐/搜索阶段补齐；通知列表已经使用通知 id 做 cursor 分页。
+跨端 API 基础约定已经在 `src/lib/api-contract.ts` 中定义。当前 `/api/v1/feed`、`/api/v1/search`、`/api/v1/uploads`、`/api/v1/notifications` 和 `/api/v1` 互动写接口返回统一 `ok/version/data` envelope。Feed/Search 的真实 cursor 查询会在 M4 推荐/搜索阶段补齐；通知列表已经使用通知 id 做 cursor 分页。
 
 ## 当前写入流程
 

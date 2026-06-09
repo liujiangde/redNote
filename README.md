@@ -121,13 +121,13 @@ nanqiao@rednote.local / rednote123
 
 ## Current Status
 
-当前项目已完成 M1、M1.5、M2、M3 基础版和 M3.1 通知中心/评论区/互动风控基础版：Feed、搜索、笔记详情、用户主页和后台列表已切换到 Prisma 查询；跨端 API contract、i18n 字典、权限边界、Docker Compose、migration 审查和 CI 已落地；登录、注册、发布、预签名上传和 `/publish`、`/admin` 权限保护已接通；点赞、收藏、一级评论、二级回复、一级评论分页、关注、通知写入、通知中心页面/API、未读数、标记已读、互动限流、目标冷却和重复评论保护已接通。下一步继续 M3.1，优先补评论治理和移动端互动 API。
+当前项目已完成 M1、M1.5、M2、M3 基础版和 M3.1 通知中心/评论区/互动风控/移动端互动 API 基础版：Feed、搜索、笔记详情、用户主页和后台列表已切换到 Prisma 查询；跨端 API contract、i18n 字典、权限边界、Docker Compose、migration 审查和 CI 已落地；登录、注册、发布、预签名上传和 `/publish`、`/admin` 权限保护已接通；点赞、收藏、一级评论、二级回复、一级评论分页、关注、通知写入、通知中心页面/API、未读数、标记已读、互动限流、目标冷却、重复评论保护和 `/api/v1` 互动写接口已接通。下一步继续 M3.1，优先补评论治理、高级风控和屏蔽能力。
 
 ## Project Shape
 
 - `src/app/(site)` C 端页面：Feed、搜索、发布、笔记详情、用户主页、通知中心
 - `src/app/admin` 管理后台：数据看板、笔记、举报、用户
-- `src/app/api/v1` 跨端 API：Feed、搜索、图片预签名上传、通知列表和已读
+- `src/app/api/v1` 跨端 API：Feed、搜索、图片预签名上传、点赞、收藏、评论、关注、通知列表和已读
 - `src/lib` 数据库、鉴权、缓存、对象存储、AI embedding、推荐评分
 - `src/lib/api-contract.ts` 跨端 API envelope、错误码和分页结构
 - `src/lib/i18n.ts` 国际化字典和基础格式化
