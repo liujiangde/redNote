@@ -7,6 +7,7 @@ import {
   createCursorPage,
   parseCursorPagination,
 } from "@/lib/api-contract";
+import { getApiSession } from "@/lib/api-session";
 import { getHomeFeedNotes } from "@/lib/content-data";
 
 export const dynamic = "force-dynamic";
@@ -29,7 +30,11 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const notes = await getHomeFeedNotes({ limit: pagination.value.limit + 1 });
+  const session = await getApiSession();
+  const notes = await getHomeFeedNotes({
+    limit: pagination.value.limit + 1,
+    viewerId: session?.user.id,
+  });
 
   return apiSuccess(
     createCursorPage(notes, {

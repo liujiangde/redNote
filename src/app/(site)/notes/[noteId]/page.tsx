@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Bookmark, Heart, MessageCircle } from "lucide-react";
+import { Bookmark, EyeOff, Heart, MessageCircle } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { getCurrentSession } from "@/lib/auth-boundary";
 import {
   createComment,
   deleteOwnComment,
+  markNoteNotInterested,
   reportVisibleComment,
   toggleFavorite,
   toggleLike,
@@ -303,6 +304,15 @@ export default async function NoteDetailPage({
             <MessageCircle className="h-4 w-4" />
             评论 {note.comments}
           </div>
+          {session?.user && (
+            <form action={markNoteNotInterested.bind(null, note.id)}>
+              <input name="reason" type="hidden" value="不感兴趣" />
+              <Button className="w-full" type="submit" variant="ghost">
+                <EyeOff className="h-4 w-4" />
+                不感兴趣
+              </Button>
+            </form>
+          )}
         </div>
         <p className="mt-4 text-center text-xs text-slate-500">
           {note.views.toLocaleString()} 次浏览 · {note.createdAt}

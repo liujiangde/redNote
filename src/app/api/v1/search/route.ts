@@ -7,6 +7,7 @@ import {
   createCursorPage,
   parseCursorPagination,
 } from "@/lib/api-contract";
+import { getApiSession } from "@/lib/api-session";
 import { searchPublishedNotes } from "@/lib/content-data";
 
 export const dynamic = "force-dynamic";
@@ -29,8 +30,10 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  const session = await getApiSession();
   const notes = await searchPublishedNotes(request.nextUrl.searchParams.get("q") ?? undefined, {
     limit: pagination.value.limit + 1,
+    viewerId: session?.user.id,
   });
 
   return apiSuccess(

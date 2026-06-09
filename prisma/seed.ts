@@ -39,6 +39,8 @@ async function main() {
   await prisma.favorite.deleteMany();
   await prisma.like.deleteMany();
   await prisma.follow.deleteMany();
+  await prisma.noteDismissal.deleteMany();
+  await prisma.userBlock.deleteMany();
   await prisma.comment.deleteMany();
   await prisma.noteImage.deleteMany();
   await prisma.note.deleteMany();

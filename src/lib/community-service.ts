@@ -7,6 +7,7 @@ import {
   ReportStatus,
   ReportTargetType,
 } from "@/generated/prisma/client";
+import { findSensitiveCommentTerms } from "@/lib/content-safety";
 import { db } from "@/lib/db";
 import { enforceInteractionGuard } from "@/lib/interaction-guard";
 
@@ -77,6 +78,42 @@ function actorDisplayName(actor: CommunityActor) {
 
 function canModerate(actor: CommunityActor) {
   return actor.role === "ADMIN" || actor.role === "SUPER_ADMIN";
+}
+
+async function getUserBlockState(actorId: string, targetUserId: string) {
+  if (actorId === targetUserId) {
+    return null;
+  }
+
+  // 屏蔽关系是双向安全边界：你屏蔽了对方，或对方屏蔽了你，都不能继续关注或互动。
+  return db.userBlock.findFirst({
+    where: {
+      OR: [
+        {
+          blockedId: targetUserId,
+          blockerId: actorId,
+        },
+        {
+          blockedId: actorId,
+          blockerId: targetUserId,
+        },
+      ],
+    },
+    select: {
+      blockedId: true,
+      blockerId: true,
+    },
+  });
+}
+
+async function ensureCanInteractWithUser(actorId: string, targetUserId: string) {
+  const block = await getUserBlockState(actorId, targetUserId);
+
+  if (!block) {
+    return null;
+  }
+
+  return communityError("FORBIDDEN", "This interaction is not available for blocked users.");
 }
 
 export async function getPublishedNoteTarget(noteIdOrSlug: string) {
@@ -260,6 +297,12 @@ export async function toggleNoteLike({
     return communityError("NOT_FOUND", "Published note was not found.");
   }
 
+  const blocked = await ensureCanInteractWithUser(actor.id, note.authorId);
+
+  if (blocked) {
+    return blocked;
+  }
+
   // 点赞是 toggle 操作，快速重复提交会把状态翻回去；风控层按用户+笔记做短冷却。
   if (
     !(await enforceInteractionGuard({
@@ -341,6 +384,12 @@ export async function toggleNoteFavorite({
 
   if (!note) {
     return communityError("NOT_FOUND", "Published note was not found.");
+  }
+
+  const blocked = await ensureCanInteractWithUser(actor.id, note.authorId);
+
+  if (blocked) {
+    return blocked;
   }
 
   // 收藏也是 toggle 操作，先做目标冷却，避免用户双击造成收藏状态和预期相反。
@@ -437,10 +486,24 @@ export async function createNoteComment({
     return communityError("VALIDATION_ERROR", "Invalid comment content.", parsed.error.flatten());
   }
 
+  const sensitiveTerms = findSensitiveCommentTerms(parsed.data.content);
+
+  if (sensitiveTerms.length) {
+    return communityError("VALIDATION_ERROR", "Comment contains sensitive content.", {
+      reason: "SENSITIVE_COMMENT_TERM",
+    });
+  }
+
   const note = await getPublishedNoteTarget(noteIdOrSlug);
 
   if (!note) {
     return communityError("NOT_FOUND", "Published note was not found.");
+  }
+
+  const blocked = await ensureCanInteractWithUser(actor.id, note.authorId);
+
+  if (blocked) {
+    return blocked;
   }
 
   const parentComment = parentId
@@ -762,6 +825,145 @@ export async function moderateCommentReport({
   };
 }
 
+export async function dismissNote({
+  actor,
+  noteIdOrSlug,
+  reason,
+}: {
+  actor: CommunityActor;
+  noteIdOrSlug: string;
+  reason?: string;
+}): Promise<
+  CommunityServiceResult<{
+    dismissed: true;
+    note: PublishedNoteTarget;
+  }>
+> {
+  const note = await getPublishedNoteTarget(noteIdOrSlug);
+
+  if (!note) {
+    return communityError("NOT_FOUND", "Published note was not found.");
+  }
+
+  if (note.authorId === actor.id) {
+    return communityError("VALIDATION_ERROR", "You cannot dismiss your own note.");
+  }
+
+  // “不感兴趣”是用户维度的轻量负反馈，不删除内容，只让后续 Feed/Search/详情过滤该笔记。
+  await db.noteDismissal.upsert({
+    where: {
+      userId_noteId: {
+        noteId: note.id,
+        userId: actor.id,
+      },
+    },
+    create: {
+      noteId: note.id,
+      reason: reason?.trim().slice(0, 120) || null,
+      userId: actor.id,
+    },
+    update: {
+      reason: reason?.trim().slice(0, 120) || null,
+    },
+  });
+
+  return {
+    data: {
+      dismissed: true,
+      note,
+    },
+    ok: true,
+  };
+}
+
+export async function toggleUserBlock({
+  actor,
+  handle,
+}: {
+  actor: CommunityActor;
+  handle: string;
+}): Promise<
+  CommunityServiceResult<{
+    blocked: boolean;
+    targetUser: {
+      handle: string;
+      id: string;
+      name: string;
+    };
+  }>
+> {
+  const targetUser = await db.user.findUnique({
+    where: {
+      handle,
+    },
+    select: {
+      handle: true,
+      id: true,
+      name: true,
+    },
+  });
+
+  if (!targetUser) {
+    return communityError("NOT_FOUND", "User was not found.");
+  }
+
+  if (targetUser.id === actor.id) {
+    return communityError("VALIDATION_ERROR", "You cannot block yourself.");
+  }
+
+  const blockKey = {
+    blockerId_blockedId: {
+      blockedId: targetUser.id,
+      blockerId: actor.id,
+    },
+  };
+  const existingBlock = await db.userBlock.findUnique({
+    where: blockKey,
+    select: {
+      blockedId: true,
+    },
+  });
+  const blocked = !existingBlock;
+
+  if (existingBlock) {
+    await db.userBlock.delete({
+      where: blockKey,
+    });
+  } else {
+    // 屏蔽会切断双方关注关系，避免主页继续显示“已关注”或产生后续社交通知。
+    await db.$transaction([
+      db.userBlock.create({
+        data: {
+          blockedId: targetUser.id,
+          blockerId: actor.id,
+        },
+      }),
+      db.follow.deleteMany({
+        where: {
+          OR: [
+            {
+              followerId: actor.id,
+              followingId: targetUser.id,
+            },
+            {
+              followerId: targetUser.id,
+              followingId: actor.id,
+            },
+          ],
+        },
+      }),
+    ]);
+  }
+
+  return {
+    data: {
+      blocked,
+      targetUser,
+    },
+    ok: true,
+  };
+}
+
 export async function toggleUserFollow({
   actor,
   handle,
@@ -796,6 +998,12 @@ export async function toggleUserFollow({
 
   if (targetUser.id === actor.id) {
     return communityError("VALIDATION_ERROR", "You cannot follow yourself.");
+  }
+
+  const blocked = await ensureCanInteractWithUser(actor.id, targetUser.id);
+
+  if (blocked) {
+    return blocked;
   }
 
   // 关注关系会影响社交图谱和通知，按目标用户做短冷却，并限制单位时间关注数量。

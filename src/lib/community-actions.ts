@@ -8,9 +8,11 @@ import type { PublishedNoteTarget } from "@/lib/community-service";
 import {
   createNoteComment,
   deleteComment,
+  dismissNote,
   reportComment,
   toggleNoteFavorite,
   toggleNoteLike,
+  toggleUserBlock,
   toggleUserFollow,
 } from "@/lib/community-service";
 
@@ -158,6 +160,52 @@ export async function reportVisibleComment(commentId: string, formData: FormData
   revalidatePath("/admin");
   revalidatePath("/admin/reports");
   revalidatePath("/notifications");
+}
+
+export async function markNoteNotInterested(noteIdOrSlug: string, formData?: FormData) {
+  const session = await requireUserOrRedirect(`/notes/${noteIdOrSlug}`);
+  const reason = formData?.get("reason");
+  const result = await dismissNote({
+    actor: session.user,
+    noteIdOrSlug,
+    reason: typeof reason === "string" ? reason : undefined,
+  });
+
+  if (!result.ok) {
+    if (result.error.code === "NOT_FOUND") {
+      redirect("/");
+    }
+
+    return;
+  }
+
+  // 不感兴趣会影响发现页、搜索页和当前详情页；刷新后用户不再看到该笔记。
+  revalidatePath("/");
+  revalidatePath("/search");
+  revalidatePath(`/notes/${result.data.note.id}`);
+  revalidatePath(`/notes/${result.data.note.slug}`);
+}
+
+export async function toggleBlock(handle: string) {
+  const session = await requireUserOrRedirect(`/users/${handle}`);
+  const result = await toggleUserBlock({
+    actor: session.user,
+    handle,
+  });
+
+  if (!result.ok) {
+    if (result.error.code === "NOT_FOUND") {
+      redirect("/");
+    }
+
+    return;
+  }
+
+  // 屏蔽关系影响双方主页、发现页和搜索页展示。
+  revalidatePath("/");
+  revalidatePath("/search");
+  revalidatePath(`/users/${result.data.targetUser.handle}`);
+  revalidatePath(`/users/${session.user.handle}`);
 }
 
 export async function toggleFollow(handle: string) {

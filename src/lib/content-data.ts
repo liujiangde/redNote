@@ -345,6 +345,115 @@ async function withDatabaseFallback<T>(query: () => Promise<T>, fallback: () => 
   }
 }
 
+type ViewerContentFilter = {
+  dismissedNoteIds: string[];
+  hiddenAuthorIds: string[];
+};
+
+async function getViewerContentFilter(viewerId: string | undefined): Promise<ViewerContentFilter> {
+  if (!viewerId) {
+    return {
+      dismissedNoteIds: [],
+      hiddenAuthorIds: [],
+    };
+  }
+
+  // 屏蔽关系按双向处理：你屏蔽的人、屏蔽你的人，都不再出现在公共发现链路里。
+  // 不感兴趣只过滤具体笔记，后续推荐系统可以把它作为负反馈信号。
+  const [blocks, dismissals] = await Promise.all([
+    db.userBlock.findMany({
+      where: {
+        OR: [
+          {
+            blockedId: viewerId,
+          },
+          {
+            blockerId: viewerId,
+          },
+        ],
+      },
+      select: {
+        blockedId: true,
+        blockerId: true,
+      },
+    }),
+    db.noteDismissal.findMany({
+      where: {
+        userId: viewerId,
+      },
+      select: {
+        noteId: true,
+      },
+    }),
+  ]);
+
+  return {
+    dismissedNoteIds: dismissals.map((dismissal) => dismissal.noteId),
+    hiddenAuthorIds: blocks.map((block) =>
+      block.blockerId === viewerId ? block.blockedId : block.blockerId,
+    ),
+  };
+}
+
+function createViewerNoteWhere(filter: ViewerContentFilter): Prisma.NoteWhereInput {
+  const clauses: Prisma.NoteWhereInput[] = [];
+
+  if (filter.hiddenAuthorIds.length) {
+    clauses.push({
+      authorId: {
+        notIn: filter.hiddenAuthorIds,
+      },
+    });
+  }
+
+  if (filter.dismissedNoteIds.length) {
+    clauses.push({
+      id: {
+        notIn: filter.dismissedNoteIds,
+      },
+    });
+  }
+
+  return clauses.length ? { AND: clauses } : {};
+}
+
+async function getViewerBlockState(viewerId: string | undefined, targetUserId: string) {
+  if (!viewerId || viewerId === targetUserId) {
+    return {
+      targetBlocksViewer: false,
+      viewerBlocksTarget: false,
+    };
+  }
+
+  const blocks = await db.userBlock.findMany({
+    where: {
+      OR: [
+        {
+          blockedId: targetUserId,
+          blockerId: viewerId,
+        },
+        {
+          blockedId: viewerId,
+          blockerId: targetUserId,
+        },
+      ],
+    },
+    select: {
+      blockedId: true,
+      blockerId: true,
+    },
+  });
+
+  return {
+    targetBlocksViewer: blocks.some(
+      (block) => block.blockerId === targetUserId && block.blockedId === viewerId,
+    ),
+    viewerBlocksTarget: blocks.some(
+      (block) => block.blockerId === viewerId && block.blockedId === targetUserId,
+    ),
+  };
+}
+
 // 在真正执行 Prisma 查询前先做一次轻量 TCP 探测，避免数据库关闭时每个页面
 // 都刷出 Prisma 连接错误。TTL 很短，只服务于开发期兜底，不作为生产健康检查。
 function getDatabaseConnectionTarget() {
@@ -500,17 +609,19 @@ function toNoteDetail(
   };
 }
 
-export async function getHomeFeedNotes(options: { limit?: number } = {}) {
+export async function getHomeFeedNotes(options: { limit?: number; viewerId?: string } = {}) {
   await connection();
 
   const limit = options.limit ?? 24;
 
   return withDatabaseFallback(
     async () => {
+      const viewerFilter = await getViewerContentFilter(options.viewerId);
       // 首页 Feed 只展示已发布内容。当前按发布时间倒序，后续推荐流可以在
       // 这个入口接入 Redis 候选池、推荐分排序或个性化过滤。
       const notes = await db.note.findMany({
         where: {
+          ...createViewerNoteWhere(viewerFilter),
           status: NoteStatus.PUBLISHED,
         },
         include: noteCardInclude,
@@ -526,7 +637,7 @@ export async function getHomeFeedNotes(options: { limit?: number } = {}) {
 
 export async function searchPublishedNotes(
   query: string | undefined,
-  options: { limit?: number } = {},
+  options: { limit?: number; viewerId?: string } = {},
 ) {
   await connection();
 
@@ -535,10 +646,12 @@ export async function searchPublishedNotes(
 
   return withDatabaseFallback(
     async () => {
+      const viewerFilter = await getViewerContentFilter(options.viewerId);
       // 第一版搜索覆盖标题、正文、作者和标签，保持查询结果仍然只返回公开内容。
       // 后续生活搜索可以在这里替换为全文索引、pgvector 语义召回或搜索服务。
       const notes = await db.note.findMany({
         where: {
+          ...createViewerNoteWhere(viewerFilter),
           status: NoteStatus.PUBLISHED,
           ...(keyword
             ? {
@@ -600,10 +713,12 @@ export async function getPublishedNoteDetail(
 
   return withDatabaseFallback(
     async () => {
+      const viewerFilter = await getViewerContentFilter(options.viewerId);
       // 详情页允许用 id 或 slug 打开，但只展示已发布笔记，隐藏/草稿不对外暴露。
       const loadNote = (commentCursor?: string) =>
         db.note.findFirst({
           where: {
+            ...createViewerNoteWhere(viewerFilter),
             status: NoteStatus.PUBLISHED,
             OR: [{ id: noteIdOrSlug }, { slug: noteIdOrSlug }],
           },
@@ -743,6 +858,13 @@ export async function getUserProfile(handle: string, options: { viewerId?: strin
       }
 
       const isSelf = options.viewerId === user.id;
+      const blockState = await getViewerBlockState(options.viewerId, user.id);
+
+      if (!isSelf && blockState.targetBlocksViewer) {
+        return null;
+      }
+
+      const viewerFilter = await getViewerContentFilter(isSelf ? undefined : options.viewerId);
       const follow = options.viewerId
         ? await db.follow.findUnique({
             where: {
@@ -767,8 +889,13 @@ export async function getUserProfile(handle: string, options: { viewerId?: strin
         followingCount: user._count.following,
         noteCount: user._count.notes,
         isSelf,
-        isFollowing: Boolean(follow),
-        notes: user.notes.map(toNoteCard),
+        isBlockedByViewer: blockState.viewerBlocksTarget,
+        isFollowing: blockState.viewerBlocksTarget ? false : Boolean(follow),
+        notes: blockState.viewerBlocksTarget
+          ? []
+          : user.notes
+              .filter((note) => !viewerFilter.dismissedNoteIds.includes(note.id))
+              .map(toNoteCard),
       };
     },
     () => {
@@ -789,6 +916,7 @@ export async function getUserProfile(handle: string, options: { viewerId?: strin
         followingCount: 0,
         noteCount: notes.length,
         isSelf: false,
+        isBlockedByViewer: false,
         isFollowing: false,
         notes: notes.map(toFixtureNoteCard),
       };

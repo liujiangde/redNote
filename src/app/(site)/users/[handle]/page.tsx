@@ -1,10 +1,11 @@
 import Image from "next/image";
 import { notFound } from "next/navigation";
+import { Ban } from "lucide-react";
 
 import { NoteCard } from "@/components/note-card";
 import { Button } from "@/components/ui/button";
 import { getCurrentSession } from "@/lib/auth-boundary";
-import { toggleFollow } from "@/lib/community-actions";
+import { toggleBlock, toggleFollow } from "@/lib/community-actions";
 import { getUserProfile } from "@/lib/content-data";
 
 export default async function UserProfilePage({
@@ -47,15 +48,25 @@ export default async function UserProfilePage({
             </div>
           </div>
           {!user.isSelf && (
-            <form action={toggleFollow.bind(null, user.handle)}>
-              <Button
-                className="w-full sm:w-auto"
-                type="submit"
-                variant={user.isFollowing ? "secondary" : "primary"}
-              >
-                {user.isFollowing ? "已关注" : "关注"}
-              </Button>
-            </form>
+            <div className="grid gap-2 sm:min-w-32">
+              {!user.isBlockedByViewer && (
+                <form action={toggleFollow.bind(null, user.handle)}>
+                  <Button
+                    className="w-full"
+                    type="submit"
+                    variant={user.isFollowing ? "secondary" : "primary"}
+                  >
+                    {user.isFollowing ? "已关注" : "关注"}
+                  </Button>
+                </form>
+              )}
+              <form action={toggleBlock.bind(null, user.handle)}>
+                <Button className="w-full" type="submit" variant="ghost">
+                  <Ban className="h-4 w-4" />
+                  {user.isBlockedByViewer ? "取消屏蔽" : "屏蔽"}
+                </Button>
+              </form>
+            </div>
           )}
         </div>
       </div>

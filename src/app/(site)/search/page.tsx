@@ -1,6 +1,7 @@
 import { Search } from "lucide-react";
 
 import { NoteCard } from "@/components/note-card";
+import { getCurrentSession } from "@/lib/auth-boundary";
 import { searchPublishedNotes } from "@/lib/content-data";
 
 export default async function SearchPage({
@@ -11,7 +12,10 @@ export default async function SearchPage({
   const { q } = await searchParams;
   // 搜索页只传递用户输入的关键词；关键词匹配、公开内容过滤和 fixture fallback
   // 都由 searchPublishedNotes 处理，便于后续替换为全文搜索或 pgvector 召回。
-  const notes = await searchPublishedNotes(q);
+  const session = await getCurrentSession();
+  const notes = await searchPublishedNotes(q, {
+    viewerId: session?.user.id,
+  });
 
   return (
     <section className="space-y-6">

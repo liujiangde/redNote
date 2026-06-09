@@ -121,8 +121,10 @@ M1.5 基础版已经落地：
 | `/api/v1/notes/[noteId]/like` | `src/app/api/v1/notes/[noteId]/like/route.ts` | 移动端点赞/取消点赞 toggle |
 | `/api/v1/notes/[noteId]/favorite` | `src/app/api/v1/notes/[noteId]/favorite/route.ts` | 移动端收藏/取消收藏 toggle |
 | `/api/v1/notes/[noteId]/comments` | `src/app/api/v1/notes/[noteId]/comments/route.ts` | 移动端创建一级评论或回复 |
+| `/api/v1/notes/[noteId]/not-interested` | `src/app/api/v1/notes/[noteId]/not-interested/route.ts` | 移动端标记笔记不感兴趣 |
 | `/api/v1/comments/[commentId]` | `src/app/api/v1/comments/[commentId]/route.ts` | 移动端删除自己的评论或举报评论 |
 | `/api/v1/users/[handle]/follow` | `src/app/api/v1/users/[handle]/follow/route.ts` | 移动端关注/取消关注 toggle |
+| `/api/v1/users/[handle]/block` | `src/app/api/v1/users/[handle]/block/route.ts` | 移动端屏蔽/取消屏蔽用户 |
 | `/api/v1/notifications` | `src/app/api/v1/notifications/route.ts` | 跨端通知 API，支持列表和标记已读 |
 
 `(site)` 和 `(auth)` 是 App Router route group，不会出现在 URL 中。页面和布局默认是 Server Components，需要浏览器状态或事件处理时再添加 `"use client"`。
@@ -150,6 +152,7 @@ M1.5 基础版已经落地：
 - `NoteImage`：笔记图片，后续由 MinIO/S3 上传结果写入。
 - `Tag` 和 `NoteTag`：标签和笔记标签关系。
 - `Like`、`Favorite`、`Comment`、`Follow`：社区互动。
+- `UserBlock`、`NoteDismissal`：用户屏蔽关系和不感兴趣负反馈。
 - `Notification`：站内通知。
 - `Report`：内容、评论、用户举报。
 - `AdminAuditLog`：后台操作审计。
@@ -267,12 +270,13 @@ node --input-type=module -e "import 'dotenv/config'; import pg from 'pg'; const 
 
 M3 互动写流程集中在 `src/lib/community-service.ts`，Web 页面和移动端 API 复用同一套业务规则：
 
-- 服务层：`toggleNoteLike`、`toggleNoteFavorite`、`createNoteComment`、`deleteComment`、`reportComment`、`toggleUserFollow` 统一处理已发布笔记校验、父评论归属校验、不能关注自己、风控、数据库写入和通知写入。
+- 服务层：`toggleNoteLike`、`toggleNoteFavorite`、`createNoteComment`、`deleteComment`、`reportComment`、`dismissNote`、`toggleUserFollow`、`toggleUserBlock` 统一处理已发布笔记校验、父评论归属校验、敏感词拦截、不能关注/屏蔽自己、风控、数据库写入和通知写入。
 - Web 页面：`src/lib/community-actions.ts` 只负责登录跳转、表单参数适配和 `revalidatePath` 刷新，保持无 JS 表单仍可提交。
-- 移动端 API：`src/app/api/v1/notes/[noteId]/*` 和 `src/app/api/v1/users/[handle]/follow` 只负责 session 认证、JSON 校验和统一响应 envelope。
+- 移动端 API：`src/app/api/v1/notes/[noteId]/*`、`src/app/api/v1/comments/[commentId]` 和 `src/app/api/v1/users/[handle]/*` 只负责 session 认证、JSON 校验和统一响应 envelope。
 - 点赞/收藏/关注：都是 toggle 语义，已存在则取消，不存在则创建；响应返回最新状态和计数，方便 App 立即刷新按钮。
 - 评论/回复：正文限制 1-1000 字；`parentId` 为空创建一级评论，传入一级评论 id 时创建二级回复；服务端不会信任客户端传来的跨笔记 parentId。
 - 删除/举报：评论作者可以把自己的评论软删除为 `DELETED`，其他用户可以举报可见评论并写入 `Report`。
+- 屏蔽/不感兴趣：用户屏蔽其他用户会切断双方关注关系；用户对笔记标记不感兴趣后，Feed、搜索、详情和用户主页读链路会按 viewer 过滤。
 - 刷新：Web 互动完成后刷新首页、搜索页、笔记详情页和相关用户主页，保证计数、按钮状态和评论列表刷新后保持一致。
 
 M3.1 通知中心流程：
@@ -300,8 +304,9 @@ M3.1 评论治理基础版：
 - 评论举报：详情页举报按钮和 `POST /api/v1/comments/[commentId]` 都只允许举报可见评论，会写入 `ReportTargetType.COMMENT` 举报。
 - 后台处理：`/admin/reports` 对评论举报支持标记处理中、隐藏评论并解决、驳回举报；处理动作写入 `AdminAuditLog`，并给举报人写入 `REPORT_UPDATE` 通知。
 - 审核隐藏：管理员隐藏一级评论时会同步隐藏其回复，避免回复脱离上下文；普通读链路不展示 `HIDDEN` 或 `DELETED` 评论。
+- 敏感词：评论写入前会经过 `src/lib/content-safety.ts` 的基础敏感词检查；命中时返回 `VALIDATION_ERROR`，不会写入评论。
 
-当前评论恢复、批量处理、举报详情页、敏感词审核和移动端举报列表还没有实现，会在 M3.1 后续和 M5 治理阶段继续补齐。
+当前评论恢复、批量处理、举报详情页、敏感词词库运营和移动端举报列表不再放入 M3.1，会在 M5 治理阶段继续补齐。
 
 M3.1 互动风控基础版：
 
@@ -312,7 +317,14 @@ M3.1 互动风控基础版：
 - 目标冷却：按用户+目标短时间锁定，防止双击或重复 POST 把点赞/收藏/关注 toggle 状态来回翻转。
 - 重复内容：评论/回复额外按用户+目标+正文 hash 做短期去重，减少网络重试或恶意刷相同内容。
 
-当前风控仍是基础版，尚未覆盖设备/IP 风险、黑名单、举报联动、敏感词审核和异常行为评分。这些会在 M3.1 后续和 M5 治理阶段继续补齐。
+M3.1 屏蔽和负反馈收尾：
+
+- 数据模型：`UserBlock` 存储用户屏蔽关系；`NoteDismissal` 存储用户对单篇笔记的不感兴趣反馈。
+- 屏蔽规则：屏蔽会切断双方关注关系；你屏蔽的人不会出现在 Feed/Search；对方屏蔽你时，你不能查看对方主页或继续互动。
+- 负反馈规则：不感兴趣不会修改笔记状态，只在当前用户的 Feed、搜索、详情和用户主页作品列表里过滤该笔记。
+- API：`POST /api/v1/users/[handle]/block` 提供屏蔽 toggle；`POST /api/v1/notes/[noteId]/not-interested` 记录不感兴趣。
+
+当前风控仍是基础版，尚未覆盖设备/IP 风险、黑名单运营、举报联动和异常行为评分。这些会在 M5 治理阶段继续补齐。
 
 M3.1 移动端互动 API：
 
@@ -320,8 +332,10 @@ M3.1 移动端互动 API：
 - 点赞：`POST /api/v1/notes/[noteId]/like`，返回 `liked`、`likeCount`、真实 `noteId` 和 `slug`。
 - 收藏：`POST /api/v1/notes/[noteId]/favorite`，返回 `favorited`、`favoriteCount`、真实 `noteId` 和 `slug`。
 - 评论：`POST /api/v1/notes/[noteId]/comments`，请求体为 `{ "content": "...", "parentId": "可选一级评论 id" }`，返回新评论、评论总数和笔记标识。
+- 不感兴趣：`POST /api/v1/notes/[noteId]/not-interested`，请求体可选 `{ "reason": "..." }`，返回 `dismissed`、真实 `noteId` 和 `slug`。
 - 评论治理：`DELETE /api/v1/comments/[commentId]` 删除自己的评论；`POST /api/v1/comments/[commentId]` 用 `{ "reason": "...", "detail": "可选说明" }` 举报评论。
 - 关注：`POST /api/v1/users/[handle]/follow`，返回 `following`、`followerCount` 和目标用户基础信息。
+- 屏蔽：`POST /api/v1/users/[handle]/block`，返回 `blocked` 和目标用户基础信息。
 - 错误：未登录返回 `UNAUTHORIZED/401`，频控命中返回 `RATE_LIMITED/429`，参数错误返回 `VALIDATION_ERROR/400`，目标不存在返回 `NOT_FOUND/404`。
 
 `src/lib/mock-data.ts` 作为 UI fixture 和开发兜底保留：当本地数据库端口不可达时，`content-data.ts` 会临时返回 fixture 数据，避免页面直接 500。数据库启动后会自动使用真实 Prisma 查询。后续新增页面应优先复用或扩展 `content-data.ts` 中的查询函数，避免页面组件直接堆叠复杂 Prisma include。

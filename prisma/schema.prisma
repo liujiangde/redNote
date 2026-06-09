@@ -63,6 +63,9 @@ model User {
   favorites              Favorite[]
   following              Follow[]        @relation("UserFollowing")
   followers              Follow[]        @relation("UserFollowers")
+  blocking               UserBlock[]     @relation("UserBlocking")
+  blockedBy              UserBlock[]     @relation("UserBlockedBy")
+  noteDismissals         NoteDismissal[]
   notifications          Notification[]  @relation("NotificationRecipient")
   triggeredNotifications Notification[]  @relation("NotificationActor")
   reportsFiled           Report[]        @relation("ReportReporter")
@@ -88,6 +91,7 @@ model Note {
   comments    Comment[]
   likes       Like[]
   favorites   Favorite[]
+  dismissals  NoteDismissal[]
   tags        NoteTag[]
   reports     Report[]       @relation("ReportNote")
   embedding   NoteEmbedding?
@@ -173,6 +177,31 @@ model Follow {
   @@id([followerId, followingId])
   @@index([followingId])
   @@map("follows")
+}
+
+model UserBlock {
+  blockerId String   @map("blocker_id")
+  blockedId String   @map("blocked_id")
+  blocker   User     @relation("UserBlocking", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked   User     @relation("UserBlockedBy", fields: [blockedId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@id([blockerId, blockedId])
+  @@index([blockedId])
+  @@map("user_blocks")
+}
+
+model NoteDismissal {
+  userId    String   @map("user_id")
+  noteId    String   @map("note_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  note      Note     @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  reason    String?  @db.VarChar(120)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@id([userId, noteId])
+  @@index([noteId])
+  @@map("note_dismissals")
 }
 
 model Tag {
