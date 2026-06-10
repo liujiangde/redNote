@@ -8,7 +8,7 @@ import {
   parseCursorPagination,
 } from "@/lib/api-contract";
 import { getApiSession } from "@/lib/api-session";
-import { searchPublishedNotes } from "@/lib/content-data";
+import { recordSearchQuery, searchPublishedNotes } from "@/lib/content-data";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +25,11 @@ export async function GET(request: NextRequest) {
   }
 
   const session = await getApiSession();
-  const notes = await searchPublishedNotes(request.nextUrl.searchParams.get("q") ?? undefined, {
+  const query = request.nextUrl.searchParams.get("q") ?? undefined;
+
+  await recordSearchQuery(query, session?.user.id);
+
+  const notes = await searchPublishedNotes(query, {
     cursor: pagination.value.cursor,
     limit: pagination.value.limit + 1,
     viewerId: session?.user.id,

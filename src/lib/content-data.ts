@@ -11,6 +11,7 @@ import {
 } from "@/generated/prisma/client";
 import { createCursorPage, type PageInfo } from "@/lib/api-contract";
 import { createEmbedding } from "@/lib/ai/embeddings";
+import { getOptionalRedisClient } from "@/lib/cache";
 import { db } from "@/lib/db";
 import {
   adminMetrics as fixtureAdminMetrics,
@@ -35,6 +36,12 @@ const MAX_DETAIL_COMMENT_PAGE_SIZE = 50;
 const COMMENT_REPLY_PREVIEW_LIMIT = 3;
 const DEFAULT_CANDIDATE_POOL_SIZE = 120;
 const SEARCH_SEMANTIC_RECALL_LIMIT = 40;
+const SEARCH_DISCOVERY_LIMIT = 8;
+const SEARCH_HISTORY_LIMIT = 8;
+const SEARCH_REDIS_TTL_SECONDS = 60 * 60 * 24 * 14;
+const SEARCH_CACHE_TTL_SECONDS = 60 * 5;
+const SEARCH_HOT_KEY = "rednote:search:hot:v1";
+const SEARCH_TOPIC_CACHE_KEY = "rednote:search:topics:v1";
 
 let databaseReachability:
   | {
@@ -208,6 +215,34 @@ export type SearchNoteData = NoteCardData & {
   semanticScore?: number;
 };
 
+export type SearchDiscoveryItem = {
+  label: string;
+  href: string;
+  source: "history" | "hot" | "topic";
+  heat?: number;
+};
+
+export type SearchSuggestion = {
+  label: string;
+  href: string;
+  type: "note" | "topic" | "user";
+  description: string;
+};
+
+export type SearchCategorySummary = {
+  type: "notes" | "topics" | "users";
+  label: string;
+  count: number;
+  samples: string[];
+};
+
+export type SearchDiscoveryData = {
+  categories: SearchCategorySummary[];
+  history: SearchDiscoveryItem[];
+  hotSearches: SearchDiscoveryItem[];
+  suggestions: SearchSuggestion[];
+};
+
 export type NoteDetailData = NoteCardData & {
   content: string;
   images: Array<{
@@ -315,6 +350,79 @@ function truncateText(value: string, maxLength: number) {
 function calculateNoteScore(note: Pick<NoteCardRecord, "viewCount" | "_count">) {
   const interactions = note._count.likes + note._count.favorites + note._count.comments;
   return Math.min(100, Math.round(note.viewCount / 300 + interactions * 5));
+}
+
+function normalizeSearchQuery(value: string | undefined) {
+  return value?.trim().replace(/\s+/g, " ").slice(0, 48) ?? "";
+}
+
+function createSearchHref(query: string) {
+  return `/search?q=${encodeURIComponent(query)}`;
+}
+
+function createSearchItem(
+  label: string,
+  source: SearchDiscoveryItem["source"],
+  heat?: number,
+): SearchDiscoveryItem {
+  return {
+    label,
+    href: createSearchHref(label),
+    source,
+    ...(heat === undefined ? {} : { heat }),
+  };
+}
+
+function dedupeByLabel<T extends { label: string }>(items: T[], limit: number) {
+  const seen = new Set<string>();
+  const deduped: T[] = [];
+
+  for (const item of items) {
+    const key = normalizeSearchText(item.label);
+
+    if (!key || seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    deduped.push(item);
+
+    if (deduped.length >= limit) {
+      break;
+    }
+  }
+
+  return deduped;
+}
+
+async function readJsonCache<T>(key: string) {
+  const client = await getOptionalRedisClient();
+
+  if (!client) {
+    return null;
+  }
+
+  const rawValue = await client.get(key);
+
+  if (!rawValue) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(rawValue) as T;
+  } catch {
+    return null;
+  }
+}
+
+async function writeJsonCache(key: string, value: unknown, ttlSeconds = SEARCH_CACHE_TTL_SECONDS) {
+  const client = await getOptionalRedisClient();
+
+  if (!client) {
+    return;
+  }
+
+  await client.setEx(key, ttlSeconds, JSON.stringify(value));
 }
 
 type RecommendationContext = {
@@ -767,6 +875,383 @@ function rankSearchCandidates({
     .map((item) => item.data);
 }
 
+function getSearchHistoryKey(viewerId: string) {
+  return `rednote:search:history:user:${viewerId}:v1`;
+}
+
+async function readSearchHistory(viewerId: string | undefined, limit: number) {
+  if (!viewerId) {
+    return [];
+  }
+
+  const client = await getOptionalRedisClient();
+
+  if (!client) {
+    return [];
+  }
+
+  const queries = await client.lRange(getSearchHistoryKey(viewerId), 0, limit - 1);
+
+  return dedupeByLabel(
+    queries.map((query) => createSearchItem(query, "history")),
+    limit,
+  );
+}
+
+async function readHotSearches(limit: number) {
+  const client = await getOptionalRedisClient();
+  const redisItems = client
+    ? await client.zRangeWithScores(SEARCH_HOT_KEY, 0, limit - 1, {
+        REV: true,
+      })
+    : [];
+
+  if (redisItems.length >= limit) {
+    return redisItems.map((item) => createSearchItem(item.value, "hot", item.score));
+  }
+
+  const topicItems = (await getTrendingTopics(limit)).map((topic) =>
+    createSearchItem(topic.name, "topic", topic.heat),
+  );
+
+  return dedupeByLabel(
+    [
+      ...redisItems.map((item) => createSearchItem(item.value, "hot", item.score)),
+      ...topicItems,
+    ],
+    limit,
+  );
+}
+
+async function getSearchSuggestionsFromDatabase({
+  keyword,
+  limit,
+  viewerFilter,
+}: {
+  keyword: string;
+  limit: number;
+  viewerFilter: ViewerContentFilter;
+}) {
+  if (!keyword) {
+    return [];
+  }
+
+  const [tags, users, notes] = await Promise.all([
+    db.tag.findMany({
+      where: {
+        name: {
+          contains: keyword,
+          mode: "insensitive",
+        },
+      },
+      select: {
+        name: true,
+        _count: {
+          select: {
+            notes: true,
+          },
+        },
+      },
+      orderBy: {
+        notes: {
+          _count: "desc",
+        },
+      },
+      take: limit,
+    }),
+    db.user.findMany({
+      where: {
+        notes: {
+          some: {
+            status: NoteStatus.PUBLISHED,
+          },
+        },
+        OR: [
+          {
+            name: {
+              contains: keyword,
+              mode: "insensitive",
+            },
+          },
+          {
+            handle: {
+              contains: keyword,
+              mode: "insensitive",
+            },
+          },
+        ],
+      },
+      select: {
+        handle: true,
+        name: true,
+        _count: {
+          select: {
+            notes: {
+              where: {
+                status: NoteStatus.PUBLISHED,
+              },
+            },
+          },
+        },
+      },
+      take: limit,
+    }),
+    db.note.findMany({
+      where: {
+        ...createViewerNoteWhere(viewerFilter),
+        status: NoteStatus.PUBLISHED,
+        OR: [
+          { title: { contains: keyword, mode: "insensitive" } },
+          { content: { contains: keyword, mode: "insensitive" } },
+        ],
+      },
+      select: {
+        id: true,
+        title: true,
+        author: {
+          select: {
+            name: true,
+          },
+        },
+      },
+      orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+      take: limit,
+    }),
+  ]);
+
+  return dedupeByLabel<SearchSuggestion>(
+    [
+      ...tags.map((tag) => ({
+        label: `#${tag.name}`,
+        href: createSearchHref(tag.name),
+        type: "topic" as const,
+        description: `${tag._count.notes} 篇相关笔记`,
+      })),
+      ...users.map((user) => ({
+        label: `@${user.handle}`,
+        href: `/users/${user.handle}`,
+        type: "user" as const,
+        description: `${user.name} · ${user._count.notes} 篇笔记`,
+      })),
+      ...notes.map((note) => ({
+        label: note.title,
+        href: `/notes/${note.id}`,
+        type: "note" as const,
+        description: `来自 ${note.author.name}`,
+      })),
+    ],
+    limit,
+  );
+}
+
+async function getSearchCategoriesFromDatabase({
+  keyword,
+  viewerFilter,
+}: {
+  keyword: string;
+  viewerFilter: ViewerContentFilter;
+}) {
+  if (!keyword) {
+    return [];
+  }
+
+  const [noteCount, topicCount, userCount, sampleNotes, sampleTags, sampleUsers] =
+    await Promise.all([
+      db.note.count({
+        where: buildSearchWhere({
+          keyword,
+          semanticIds: [],
+          viewerFilter,
+        }),
+      }),
+      db.tag.count({
+        where: {
+          name: {
+            contains: keyword,
+            mode: "insensitive",
+          },
+        },
+      }),
+      db.user.count({
+        where: {
+          notes: {
+            some: {
+              status: NoteStatus.PUBLISHED,
+            },
+          },
+          OR: [
+            {
+              name: {
+                contains: keyword,
+                mode: "insensitive",
+              },
+            },
+            {
+              handle: {
+                contains: keyword,
+                mode: "insensitive",
+              },
+            },
+          ],
+        },
+      }),
+      db.note.findMany({
+        where: buildSearchWhere({
+          keyword,
+          semanticIds: [],
+          viewerFilter,
+        }),
+        select: {
+          title: true,
+        },
+        orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+        take: 3,
+      }),
+      db.tag.findMany({
+        where: {
+          name: {
+            contains: keyword,
+            mode: "insensitive",
+          },
+        },
+        select: {
+          name: true,
+        },
+        take: 3,
+      }),
+      db.user.findMany({
+        where: {
+          notes: {
+            some: {
+              status: NoteStatus.PUBLISHED,
+            },
+          },
+          OR: [
+            {
+              name: {
+                contains: keyword,
+                mode: "insensitive",
+              },
+            },
+            {
+              handle: {
+                contains: keyword,
+                mode: "insensitive",
+              },
+            },
+          ],
+        },
+        select: {
+          handle: true,
+          name: true,
+        },
+        take: 3,
+      }),
+    ]);
+
+  return [
+    {
+      type: "notes" as const,
+      label: "笔记",
+      count: noteCount,
+      samples: sampleNotes.map((note) => note.title),
+    },
+    {
+      type: "topics" as const,
+      label: "话题",
+      count: topicCount,
+      samples: sampleTags.map((tag) => `#${tag.name}`),
+    },
+    {
+      type: "users" as const,
+      label: "用户",
+      count: userCount,
+      samples: sampleUsers.map((user) => `${user.name} @${user.handle}`),
+    },
+  ];
+}
+
+function getFixtureSearchDiscovery({
+  keyword,
+  limit,
+}: {
+  keyword: string;
+  limit: number;
+}): SearchDiscoveryData {
+  const fixtureNotes = getFixtureNotes();
+  const fixtureTopics = getFixtureTopics(limit);
+  const normalizedKeyword = normalizeSearchText(keyword);
+  const matchedNotes = normalizedKeyword
+    ? fixtureNotes.filter((note) => {
+        const source = getCardSearchMatchSource(note);
+        return [source.title, source.body, source.authorName, source.authorHandle, ...source.tags]
+          .join(" ")
+          .toLowerCase()
+          .includes(normalizedKeyword);
+      })
+    : fixtureNotes;
+  const matchedTopics = fixtureTopics.filter((topic) =>
+    normalizeSearchText(topic.name).includes(normalizedKeyword),
+  );
+  const matchedUsers = fixtureNotes.filter((note) =>
+    [note.author.name, note.author.handle].some((item) =>
+      normalizeSearchText(item).includes(normalizedKeyword),
+    ),
+  );
+
+  return {
+    history: [],
+    hotSearches: fixtureTopics.map((topic) => createSearchItem(topic.name, "topic", topic.heat)),
+    suggestions: dedupeByLabel<SearchSuggestion>(
+      [
+        ...matchedTopics.map((topic) => ({
+          label: `#${topic.name}`,
+          href: createSearchHref(topic.name),
+          type: "topic" as const,
+          description: topic.growth,
+        })),
+        ...matchedUsers.map((note) => ({
+          label: `@${note.author.handle}`,
+          href: `/users/${note.author.handle}`,
+          type: "user" as const,
+          description: note.author.name,
+        })),
+        ...matchedNotes.map((note) => ({
+          label: note.title,
+          href: `/notes/${note.id}`,
+          type: "note" as const,
+          description: note.author.name,
+        })),
+      ],
+      limit,
+    ),
+    categories: keyword
+      ? [
+          {
+            type: "notes",
+            label: "笔记",
+            count: matchedNotes.length,
+            samples: matchedNotes.slice(0, 3).map((note) => note.title),
+          },
+          {
+            type: "topics",
+            label: "话题",
+            count: matchedTopics.length,
+            samples: matchedTopics.slice(0, 3).map((topic) => `#${topic.name}`),
+          },
+          {
+            type: "users",
+            label: "用户",
+            count: matchedUsers.length,
+            samples: matchedUsers
+              .slice(0, 3)
+              .map((note) => `${note.author.name} @${note.author.handle}`),
+          },
+        ]
+      : [],
+  };
+}
+
 // 本地开发时 PostgreSQL 可能还没启动；只有连接类错误才进入 fixture fallback，
 // 业务错误仍然抛出，避免真实 bug 被示例数据掩盖。
 function isDatabaseUnavailable(error: unknown) {
@@ -790,7 +1275,7 @@ function isPrismaRecordNotFound(error: unknown) {
   return code === "P2025";
 }
 
-async function withDatabaseFallback<T>(query: () => Promise<T>, fallback: () => T) {
+async function withDatabaseFallback<T>(query: () => Promise<T>, fallback: () => T | Promise<T>) {
   if (!(await canReachDatabase())) {
     return fallback();
   }
@@ -1207,6 +1692,87 @@ export async function searchPublishedNotes(
   );
 }
 
+export async function recordSearchQuery(query: string | undefined, viewerId: string | undefined) {
+  const keyword = normalizeSearchQuery(query);
+
+  if (keyword.length < 2) {
+    return;
+  }
+
+  const client = await getOptionalRedisClient();
+
+  if (!client) {
+    return;
+  }
+
+  // 搜索热词和个人历史是 M4.2 的轻量行为日志，不写数据库。
+  // Redis 不可用时会直接跳过，搜索结果本身仍由 Prisma/fixture 返回。
+  await client.zIncrBy(SEARCH_HOT_KEY, 1, keyword);
+  await client.expire(SEARCH_HOT_KEY, SEARCH_REDIS_TTL_SECONDS);
+
+  if (!viewerId) {
+    return;
+  }
+
+  const historyKey = getSearchHistoryKey(viewerId);
+
+  await client.lRem(historyKey, 0, keyword);
+  await client.lPush(historyKey, keyword);
+  await client.lTrim(historyKey, 0, SEARCH_HISTORY_LIMIT - 1);
+  await client.expire(historyKey, SEARCH_REDIS_TTL_SECONDS);
+}
+
+export async function getSearchDiscovery(
+  options: { limit?: number; query?: string; viewerId?: string } = {},
+) {
+  await connection();
+
+  const keyword = normalizeSearchQuery(options.query);
+  const limit = options.limit ?? SEARCH_DISCOVERY_LIMIT;
+
+  return withDatabaseFallback<SearchDiscoveryData>(
+    async () => {
+      const viewerFilter = await getViewerContentFilter(options.viewerId);
+      const [history, hotSearches, suggestions, categories] = await Promise.all([
+        readSearchHistory(options.viewerId, SEARCH_HISTORY_LIMIT),
+        readHotSearches(limit),
+        getSearchSuggestionsFromDatabase({
+          keyword,
+          limit,
+          viewerFilter,
+        }),
+        getSearchCategoriesFromDatabase({
+          keyword,
+          viewerFilter,
+        }),
+      ]);
+
+      return {
+        categories,
+        history,
+        hotSearches,
+        suggestions,
+      };
+    },
+    async () => {
+      const fixture = getFixtureSearchDiscovery({
+        keyword,
+        limit,
+      });
+      const [history, hotSearches] = await Promise.all([
+        readSearchHistory(options.viewerId, SEARCH_HISTORY_LIMIT),
+        readHotSearches(limit),
+      ]);
+
+      return {
+        ...fixture,
+        history,
+        hotSearches: hotSearches.length ? hotSearches : fixture.hotSearches,
+      };
+    },
+  );
+}
+
 export async function getPublishedNoteDetail(
   noteIdOrSlug: string,
   options: { commentCursor?: string; commentLimit?: number; viewerId?: string } = {},
@@ -1436,6 +2002,13 @@ export async function getTrendingTopics(limit = 5) {
 
   return withDatabaseFallback(
     async () => {
+      const cacheKey = `${SEARCH_TOPIC_CACHE_KEY}:${limit}`;
+      const cachedTopics = await readJsonCache<TopicTrend[]>(cacheKey);
+
+      if (cachedTopics) {
+        return cachedTopics;
+      }
+
       // 趋势话题当前用标签关联笔记数量近似热度；后续可叠加搜索量、曝光、
       // 互动增长和运营活动权重。
       const tags = await db.tag.findMany({
@@ -1455,7 +2028,7 @@ export async function getTrendingTopics(limit = 5) {
         take: limit,
       });
 
-      return tags.map((tag): TopicTrend => {
+      const topics = tags.map((tag): TopicTrend => {
         const noteCount = tag._count.notes;
 
         return {
@@ -1465,6 +2038,10 @@ export async function getTrendingTopics(limit = 5) {
           growth: `${noteCount} 篇`,
         };
       });
+
+      await writeJsonCache(cacheKey, topics);
+
+      return topics;
     },
     () => getFixtureTopics(limit),
   );

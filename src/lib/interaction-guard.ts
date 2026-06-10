@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { getRedisClient } from "@/lib/cache";
+import { getConnectedRedisClient } from "@/lib/cache";
 
 export type InteractionKind = "comment" | "favorite" | "follow" | "like";
 
@@ -51,7 +51,6 @@ const policies: Record<InteractionKind, GuardPolicy> = {
 
 const memoryCounters = new Map<string, MemoryCounter>();
 const memoryLocks = new Map<string, number>();
-let redisConnectPromise: Promise<ReturnType<typeof getRedisClient>> | undefined;
 
 function normalizeContent(value: string | undefined) {
   return value?.trim().replace(/\s+/g, " ").toLowerCase();
@@ -77,24 +76,6 @@ function getDuplicateContentKey(input: GuardInput) {
   }
 
   return `rednote:guard:${input.kind}:user:${input.userId}:content:${input.targetId}:${hashContent(normalized)}`;
-}
-
-async function getConnectedRedisClient() {
-  const client = getRedisClient();
-
-  if (client.isOpen) {
-    return client;
-  }
-
-  // 多个 Server Action 同时触发时共用同一个 connect promise，避免并发 connect。
-  redisConnectPromise ??= client
-    .connect()
-    .then(() => client)
-    .finally(() => {
-      redisConnectPromise = undefined;
-    });
-
-  return redisConnectPromise;
 }
 
 async function setRedisLock(key: string, ttlSeconds: number) {
