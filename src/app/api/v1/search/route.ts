@@ -13,8 +13,8 @@ import { searchPublishedNotes } from "@/lib/content-data";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
-  // 生活搜索 API 预留入口：先复用 Web 关键词搜索，后续可替换为全文索引、
-  // pgvector 或独立搜索服务，同时保持响应结构不变。
+  // 生活搜索 API 和 Web 搜索共用搜索读模型：
+  // 这里只处理 API 参数和 envelope，关键词/语义混合召回与命中解释放在 content-data。
   const pagination = parseCursorPagination(request.nextUrl.searchParams);
 
   if (!pagination.ok) {
@@ -24,14 +24,9 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  if (pagination.value.cursor) {
-    return apiError(apiErrorCodes.BAD_REQUEST, "Cursor pagination is reserved for M4.", {
-      status: 400,
-    });
-  }
-
   const session = await getApiSession();
   const notes = await searchPublishedNotes(request.nextUrl.searchParams.get("q") ?? undefined, {
+    cursor: pagination.value.cursor,
     limit: pagination.value.limit + 1,
     viewerId: session?.user.id,
   });

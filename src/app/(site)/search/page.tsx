@@ -35,7 +35,19 @@ export default async function SearchPage({
       {notes.length ? (
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {notes.map((note) => (
-            <NoteCard key={note.id} note={note} />
+            <div key={note.id} className="space-y-2">
+              <NoteCard note={note} />
+              <div className="flex flex-wrap gap-2 text-xs text-slate-500">
+                {note.matchReasons.map((reason) => (
+                  <span
+                    key={reason}
+                    className="rounded-full border border-slate-200 bg-white px-2.5 py-1"
+                  >
+                    {reason}
+                  </span>
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       ) : (

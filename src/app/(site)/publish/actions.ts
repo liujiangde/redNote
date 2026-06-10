@@ -10,6 +10,7 @@ import { NoteStatus } from "@/generated/prisma/client";
 import { requireUserSession } from "@/lib/auth-boundary";
 import { createEmbedding } from "@/lib/ai/embeddings";
 import { db } from "@/lib/db";
+import { formatPgVector } from "@/lib/vector";
 
 export type PublishFormState = {
   message: string;
@@ -50,15 +51,6 @@ function parseTags(value: string | undefined) {
         .filter(Boolean),
     ),
   ).slice(0, 8);
-}
-
-function formatVector(embedding: number[]) {
-  const values = Array.from({ length: 1536 }, (_, index) => {
-    const value = embedding[index] ?? 0;
-    return Number.isFinite(value) ? value : 0;
-  });
-
-  return `[${values.join(",")}]`;
 }
 
 export async function publishNote(
@@ -143,7 +135,7 @@ export async function publishNote(
      ON CONFLICT ("note_id") DO UPDATE
      SET "embedding" = EXCLUDED."embedding", "source_text" = EXCLUDED."source_text", "updated_at" = NOW()`,
     note.id,
-    formatVector(embedding),
+    formatPgVector(embedding),
     sourceText,
   );
 

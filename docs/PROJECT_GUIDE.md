@@ -101,8 +101,8 @@ M1.5 基础版已经落地：
 
 | 路由 | 文件 | 说明 |
 | --- | --- | --- |
-| `/` | `src/app/(site)/page.tsx` | 推荐 Feed 和趋势话题 |
-| `/search` | `src/app/(site)/search/page.tsx` | 搜索结果页，已接入 Prisma 关键词查询 |
+| `/` | `src/app/(site)/page.tsx` | 推荐 Feed 和趋势话题，Feed 已接入轻量推荐排序 |
+| `/search` | `src/app/(site)/search/page.tsx` | 搜索结果页，展示关键词/语义召回后的命中原因 |
 | `/publish` | `src/app/(site)/publish/page.tsx` | 发布表单骨架 |
 | `/notes/[noteId]` | `src/app/(site)/notes/[noteId]/page.tsx` | 笔记详情页，支持点赞、收藏、评论、回复、删除和举报 |
 | `/users/[handle]` | `src/app/(site)/users/[handle]/page.tsx` | 用户主页，支持关注和取消关注 |
@@ -115,8 +115,8 @@ M1.5 基础版已经落地：
 | `/admin/users` | `src/app/admin/users/page.tsx` | 用户管理 |
 | `/api/auth/[...nextauth]` | `src/app/api/auth/[...nextauth]/route.ts` | NextAuth handler |
 | `/api/health` | `src/app/api/health/route.ts` | 环境状态检查 |
-| `/api/v1/feed` | `src/app/api/v1/feed/route.ts` | 跨端 Feed API 预留 |
-| `/api/v1/search` | `src/app/api/v1/search/route.ts` | 跨端搜索 API 预留 |
+| `/api/v1/feed` | `src/app/api/v1/feed/route.ts` | 跨端 Feed API，支持 cursor/limit 和推荐原因 |
+| `/api/v1/search` | `src/app/api/v1/search/route.ts` | 跨端搜索 API，支持 cursor/limit、混合召回和命中原因 |
 | `/api/v1/uploads` | `src/app/api/v1/uploads/route.ts` | 登录用户图片预签名上传 |
 | `/api/v1/notes/[noteId]/like` | `src/app/api/v1/notes/[noteId]/like/route.ts` | 移动端点赞/取消点赞 toggle |
 | `/api/v1/notes/[noteId]/favorite` | `src/app/api/v1/notes/[noteId]/favorite/route.ts` | 移动端收藏/取消收藏 toggle |
@@ -340,9 +340,9 @@ M3.1 移动端互动 API：
 
 `src/lib/mock-data.ts` 作为 UI fixture 和开发兜底保留：当本地数据库端口不可达时，`content-data.ts` 会临时返回 fixture 数据，避免页面直接 500。数据库启动后会自动使用真实 Prisma 查询。后续新增页面应优先复用或扩展 `content-data.ts` 中的查询函数，避免页面组件直接堆叠复杂 Prisma include。
 
-当前核心读链路还没有正式缓存，详情页浏览量仍是同步数据库递增，搜索仍是简单关键词查询。这些实现适合 MVP，不适合大流量公开访问；后续优化时应优先处理缓存、分页、浏览量聚合和搜索索引。
+当前核心读链路还没有正式缓存，详情页浏览量仍是同步数据库递增，Feed 推荐候选和搜索热词也还没有进入 Redis。这些实现适合 MVP，不适合大流量公开访问；后续优化时应优先处理缓存、浏览量聚合、推荐候选池、搜索热词和搜索索引。
 
-跨端 API 基础约定已经在 `src/lib/api-contract.ts` 中定义。当前 `/api/v1/feed`、`/api/v1/search`、`/api/v1/uploads`、`/api/v1/notifications` 和 `/api/v1` 互动写接口返回统一 `ok/version/data` envelope。Feed/Search 的真实 cursor 查询会在 M4 推荐/搜索阶段补齐；通知列表已经使用通知 id 做 cursor 分页。
+跨端 API 基础约定已经在 `src/lib/api-contract.ts` 中定义。当前 `/api/v1/feed`、`/api/v1/search`、`/api/v1/uploads`、`/api/v1/notifications` 和 `/api/v1` 互动写接口返回统一 `ok/version/data` envelope。Feed/Search 已支持 `cursor` 和 `limit`，通知列表使用通知 id 做 cursor 分页；后续移动端接入时应继续沿用这套 `pageInfo` 结构。
 
 ## 当前写入流程
 
@@ -378,6 +378,14 @@ M2 基础版已经接通：
 
 `src/lib/ai/embeddings.ts` 负责生成向量。本地没有 `OPENAI_API_KEY` 时会返回确定性伪向量，目的是让 seed 和开发流程不被外部服务阻塞，不代表真实语义效果。
 
+M4.1 基础版的数据流如下：
+
+- 发布笔记时 `src/app/(site)/publish/actions.ts` 生成 embedding，并通过 `src/lib/vector.ts` 格式化为 pgvector 字符串写入 `note_embeddings`。
+- Feed 读取走 `src/lib/content-data.ts` 的 `getHomeFeedNotes`：先过滤屏蔽用户和不感兴趣笔记，再按关注作者、兴趣标签、互动热度和新鲜度计算推荐分，最后按 cursor 截取页面。
+- 搜索读取走 `searchPublishedNotes`：关键词召回覆盖标题、正文、作者和标签；语义召回读取 `note_embeddings`，用 pgvector 距离补充候选；排序后返回 `matchReasons` 和 `recommendationReason`。
+- `/api/v1/feed` 和 `/api/v1/search` 只负责解析 `cursor/limit`、读取 session 和包统一响应，不重复实现排序业务。
+- pgvector、数据库或 embedding 服务不可用时，搜索会保留关键词召回；数据库端口不可达时才回退到 `src/lib/mock-data.ts` fixture。
+
 `src/lib/recommendation.ts` 保存第一版推荐权重：
 
 - 语义相似度：0.35
@@ -386,7 +394,7 @@ M2 基础版已经接通：
 - 新鲜度：0.15
 - 关注作者：0.10
 
-后续推荐服务应把每个信号归一化到 0 到 1，并保留排序解释，方便调试和后台观察。
+后续推荐服务应继续把每个信号归一化到 0 到 1，并保留排序解释，方便调试和后台观察。下一步重点是把热门标签、推荐候选和搜索热词放入 Redis，并为排序规则补测试和基础监控。
 
 ## 后台治理
 

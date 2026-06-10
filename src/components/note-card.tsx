@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { Bookmark, Heart, MessageCircle } from "lucide-react";
+import { Bookmark, Heart, MessageCircle, Sparkles } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import type { NoteCardData } from "@/lib/content-data";
@@ -36,6 +36,12 @@ export function NoteCard({ note }: Readonly<{ note: NoteCardData }>) {
             <Badge key={tag}>{tag}</Badge>
           ))}
         </div>
+        {note.recommendationReason ? (
+          <div className="inline-flex items-center gap-1.5 rounded-full bg-teal-50 px-2.5 py-1 text-xs font-medium text-teal-700">
+            <Sparkles className="h-3.5 w-3.5" />
+            {note.recommendationReason}
+          </div>
+        ) : null}
         <div className="flex items-center justify-between border-t border-slate-100 pt-3">
           <Link
             href={`/users/${note.author.handle}`}

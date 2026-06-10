@@ -10,6 +10,7 @@ import {
   ReportTargetType,
 } from "@/generated/prisma/client";
 import { createCursorPage, type PageInfo } from "@/lib/api-contract";
+import { createEmbedding } from "@/lib/ai/embeddings";
 import { db } from "@/lib/db";
 import {
   adminMetrics as fixtureAdminMetrics,
@@ -17,6 +18,8 @@ import {
   moderationQueue as fixtureModerationQueue,
   topicTrends as fixtureTopicTrends,
 } from "@/lib/mock-data";
+import { scoreRecommendation } from "@/lib/recommendation";
+import { formatPgVector } from "@/lib/vector";
 
 // 当前 Web 页面共用的内容读模型层：
 // 1. 页面只关心已经整理好的展示 DTO。
@@ -30,6 +33,8 @@ const DATABASE_REACHABILITY_TTL_MS = 5000;
 const DEFAULT_DETAIL_COMMENT_PAGE_SIZE = 10;
 const MAX_DETAIL_COMMENT_PAGE_SIZE = 50;
 const COMMENT_REPLY_PREVIEW_LIMIT = 3;
+const DEFAULT_CANDIDATE_POOL_SIZE = 120;
+const SEARCH_SEMANTIC_RECALL_LIMIT = 40;
 
 let databaseReachability:
   | {
@@ -195,6 +200,12 @@ export type NoteCardData = {
   views: number;
   score: number;
   createdAt: string;
+  recommendationReason?: string;
+};
+
+export type SearchNoteData = NoteCardData & {
+  matchReasons: string[];
+  semanticScore?: number;
 };
 
 export type NoteDetailData = NoteCardData & {
@@ -304,6 +315,456 @@ function truncateText(value: string, maxLength: number) {
 function calculateNoteScore(note: Pick<NoteCardRecord, "viewCount" | "_count">) {
   const interactions = note._count.likes + note._count.favorites + note._count.comments;
   return Math.min(100, Math.round(note.viewCount / 300 + interactions * 5));
+}
+
+type RecommendationContext = {
+  followingIds: Set<string>;
+  preferredTags: Set<string>;
+};
+
+type SearchMatchSource = {
+  authorHandle: string;
+  authorName: string;
+  body: string;
+  tags: string[];
+  title: string;
+};
+
+type SemanticSearchRow = {
+  id: string;
+  semanticScore: number | string;
+};
+
+function normalizeSearchText(value: string | undefined) {
+  return value?.trim().toLowerCase() ?? "";
+}
+
+function getNoteTimestamp(note: Pick<NoteCardRecord, "createdAt" | "publishedAt">) {
+  return (note.publishedAt ?? note.createdAt).getTime();
+}
+
+function calculateEngagementRaw(note: Pick<NoteCardRecord, "viewCount" | "_count">) {
+  // 收藏比点赞更能表达长期兴趣，评论比浏览更能表达参与度，所以权重更高。
+  return (
+    note._count.favorites * 4 +
+    note._count.likes * 3 +
+    note._count.comments * 2 +
+    note.viewCount / 500
+  );
+}
+
+function calculateFreshnessSignal(note: Pick<NoteCardRecord, "createdAt" | "publishedAt">) {
+  const ageDays = Math.max(0, (Date.now() - getNoteTimestamp(note)) / 86_400_000);
+
+  // 30 天内的新内容有递减加成，超过 30 天后仍可凭互动和标签排序胜出。
+  return Math.max(0, Math.min(1, 1 - ageDays / 30));
+}
+
+function calculateTagAffinity(note: NoteCardRecord, preferredTags: Set<string>) {
+  const noteTags = note.tags.map((item) => item.tag.name.toLowerCase());
+
+  if (!preferredTags.size) {
+    return 0.5;
+  }
+
+  const overlapCount = noteTags.filter((tag) => preferredTags.has(tag)).length;
+
+  return Math.min(1, overlapCount / Math.min(3, preferredTags.size));
+}
+
+function explainRecommendation(signal: {
+  engagement: number;
+  followedAuthor: number;
+  freshness: number;
+  tagMatch: number;
+}) {
+  if (signal.followedAuthor > 0) {
+    return "关注作者";
+  }
+
+  if (signal.tagMatch >= 0.34) {
+    return "兴趣标签";
+  }
+
+  if (signal.engagement >= 0.65) {
+    return "高互动";
+  }
+
+  if (signal.freshness >= 0.7) {
+    return "近期发布";
+  }
+
+  return "综合推荐";
+}
+
+function calculateRecommendationForNote({
+  context,
+  maxEngagement,
+  note,
+  semanticSimilarity = 0.5,
+}: {
+  context: RecommendationContext;
+  maxEngagement: number;
+  note: NoteCardRecord;
+  semanticSimilarity?: number;
+}) {
+  const signal = {
+    semanticSimilarity,
+    tagMatch: calculateTagAffinity(note, context.preferredTags),
+    engagement: maxEngagement > 0 ? calculateEngagementRaw(note) / maxEngagement : 0,
+    freshness: calculateFreshnessSignal(note),
+    followedAuthor: context.followingIds.has(note.authorId) ? 1 : 0,
+  };
+
+  return {
+    reason: explainRecommendation(signal),
+    score: scoreRecommendation(signal),
+    signal,
+  };
+}
+
+async function getViewerRecommendationContext(
+  viewerId: string | undefined,
+): Promise<RecommendationContext> {
+  if (!viewerId) {
+    return {
+      followingIds: new Set(),
+      preferredTags: new Set(),
+    };
+  }
+
+  // M4.1 的用户兴趣画像先从关注、点赞、收藏中轻量推导。
+  // 后续有曝光/停留日志后，应迁移到独立画像或推荐特征服务。
+  const [follows, interactedNotes] = await Promise.all([
+    db.follow.findMany({
+      where: {
+        followerId: viewerId,
+      },
+      select: {
+        followingId: true,
+      },
+    }),
+    db.note.findMany({
+      where: {
+        status: NoteStatus.PUBLISHED,
+        OR: [
+          {
+            likes: {
+              some: {
+                userId: viewerId,
+              },
+            },
+          },
+          {
+            favorites: {
+              some: {
+                userId: viewerId,
+              },
+            },
+          },
+        ],
+      },
+      select: {
+        tags: {
+          include: {
+            tag: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
+      take: 30,
+    }),
+  ]);
+
+  return {
+    followingIds: new Set(follows.map((follow) => follow.followingId)),
+    preferredTags: new Set(
+      interactedNotes.flatMap((note) => note.tags.map((item) => item.tag.name.toLowerCase())),
+    ),
+  };
+}
+
+function sliceAfterCursor<T extends { id: string }>(
+  items: T[],
+  cursor: string | undefined,
+  limit: number,
+) {
+  if (!cursor) {
+    return items.slice(0, limit);
+  }
+
+  const cursorIndex = items.findIndex((item) => item.id === cursor);
+
+  if (cursorIndex < 0) {
+    return [];
+  }
+
+  return items.slice(cursorIndex + 1, cursorIndex + 1 + limit);
+}
+
+function rankFeedCandidates(notes: NoteCardRecord[], context: RecommendationContext) {
+  const maxEngagement = Math.max(...notes.map(calculateEngagementRaw), 1);
+
+  return notes
+    .map((note) => {
+      const recommendation = calculateRecommendationForNote({
+        context,
+        maxEngagement,
+        note,
+      });
+
+      return {
+        data: {
+          ...toNoteCard(note),
+          recommendationReason: recommendation.reason,
+          score: Math.round(recommendation.score * 100),
+        },
+        publishedAt: getNoteTimestamp(note),
+        recommendationScore: recommendation.score,
+      };
+    })
+    .sort(
+      (left, right) =>
+        right.recommendationScore - left.recommendationScore ||
+        right.publishedAt - left.publishedAt ||
+        left.data.id.localeCompare(right.data.id),
+    )
+    .map((item) => item.data);
+}
+
+function getSearchMatchSource(note: NoteCardRecord): SearchMatchSource {
+  return {
+    authorHandle: note.author.handle,
+    authorName: note.author.name,
+    body: note.content,
+    tags: note.tags.map((item) => item.tag.name),
+    title: note.title,
+  };
+}
+
+function getCardSearchMatchSource(note: NoteCardData): SearchMatchSource {
+  return {
+    authorHandle: note.author.handle,
+    authorName: note.author.name,
+    body: note.excerpt,
+    tags: note.tags,
+    title: note.title,
+  };
+}
+
+function calculateKeywordScore(source: SearchMatchSource, keyword: string | undefined) {
+  const normalizedKeyword = normalizeSearchText(keyword);
+
+  if (!normalizedKeyword) {
+    return 0;
+  }
+
+  let score = 0;
+
+  if (normalizeSearchText(source.title).includes(normalizedKeyword)) {
+    score += 4;
+  }
+
+  if (normalizeSearchText(source.body).includes(normalizedKeyword)) {
+    score += 2;
+  }
+
+  if (
+    normalizeSearchText(source.authorName).includes(normalizedKeyword) ||
+    normalizeSearchText(source.authorHandle).includes(normalizedKeyword)
+  ) {
+    score += 1;
+  }
+
+  score +=
+    source.tags.filter((tag) => normalizeSearchText(tag).includes(normalizedKeyword)).length * 3;
+
+  return score;
+}
+
+function getSearchMatchReasons({
+  keyword,
+  semanticScore = 0,
+  source,
+}: {
+  keyword: string | undefined;
+  semanticScore?: number;
+  source: SearchMatchSource;
+}) {
+  const normalizedKeyword = normalizeSearchText(keyword);
+  const reasons: string[] = [];
+
+  if (normalizedKeyword) {
+    if (normalizeSearchText(source.title).includes(normalizedKeyword)) {
+      reasons.push("标题命中");
+    }
+
+    if (normalizeSearchText(source.body).includes(normalizedKeyword)) {
+      reasons.push("正文命中");
+    }
+
+    const matchedTags = source.tags.filter((tag) =>
+      normalizeSearchText(tag).includes(normalizedKeyword),
+    );
+
+    if (matchedTags.length) {
+      reasons.push(`标签命中：${matchedTags.slice(0, 2).join("、")}`);
+    }
+
+    if (
+      normalizeSearchText(source.authorName).includes(normalizedKeyword) ||
+      normalizeSearchText(source.authorHandle).includes(normalizedKeyword)
+    ) {
+      reasons.push("作者命中");
+    }
+  }
+
+  if (semanticScore >= 0.65) {
+    reasons.push("语义相似");
+  }
+
+  if (!reasons.length) {
+    reasons.push(normalizedKeyword ? "综合召回" : "综合推荐");
+  }
+
+  return reasons.slice(0, 3);
+}
+
+async function getSemanticSearchScores({
+  keyword,
+  limit,
+  viewerFilter,
+}: {
+  keyword: string | undefined;
+  limit: number;
+  viewerFilter: ViewerContentFilter;
+}) {
+  const normalizedKeyword = keyword?.trim();
+
+  if (!normalizedKeyword) {
+    return new Map<string, number>();
+  }
+
+  try {
+    const embedding = await createEmbedding(normalizedKeyword);
+    const rows = await db.$queryRawUnsafe<SemanticSearchRow[]>(
+      `SELECT n."id", (1 - (ne."embedding" <=> $1::vector)) AS "semanticScore"
+       FROM "note_embeddings" ne
+       INNER JOIN "notes" n ON n."id" = ne."note_id"
+       WHERE n."status" = 'PUBLISHED'
+         AND (cardinality($2::text[]) = 0 OR n."author_id" <> ALL($2::text[]))
+         AND (cardinality($3::text[]) = 0 OR n."id" <> ALL($3::text[]))
+       ORDER BY ne."embedding" <=> $1::vector
+       LIMIT $4`,
+      formatPgVector(embedding),
+      viewerFilter.hiddenAuthorIds,
+      viewerFilter.dismissedNoteIds,
+      limit,
+    );
+
+    return new Map(rows.map((row) => [row.id, Number(row.semanticScore) || 0]));
+  } catch {
+    // pgvector、数据库或 embedding 服务不可用时，搜索仍然保留关键词召回。
+    // 这让本地开发不被外部服务阻塞，生产环境则应监控语义召回失败率。
+    return new Map<string, number>();
+  }
+}
+
+function buildSearchWhere({
+  keyword,
+  semanticIds,
+  viewerFilter,
+}: {
+  keyword: string | undefined;
+  semanticIds: string[];
+  viewerFilter: ViewerContentFilter;
+}): Prisma.NoteWhereInput {
+  const normalizedKeyword = keyword?.trim();
+  const recallClauses: Prisma.NoteWhereInput[] = [];
+
+  if (normalizedKeyword) {
+    recallClauses.push(
+      { title: { contains: normalizedKeyword, mode: "insensitive" } },
+      { content: { contains: normalizedKeyword, mode: "insensitive" } },
+      { author: { name: { contains: normalizedKeyword, mode: "insensitive" } } },
+      { author: { handle: { contains: normalizedKeyword, mode: "insensitive" } } },
+      {
+        tags: {
+          some: {
+            tag: {
+              name: { contains: normalizedKeyword, mode: "insensitive" },
+            },
+          },
+        },
+      },
+    );
+  }
+
+  if (semanticIds.length) {
+    recallClauses.push({
+      id: {
+        in: semanticIds,
+      },
+    });
+  }
+
+  return {
+    ...createViewerNoteWhere(viewerFilter),
+    status: NoteStatus.PUBLISHED,
+    ...(recallClauses.length ? { OR: recallClauses } : {}),
+  };
+}
+
+function rankSearchCandidates({
+  context,
+  keyword,
+  notes,
+  semanticScores,
+}: {
+  context: RecommendationContext;
+  keyword: string | undefined;
+  notes: NoteCardRecord[];
+  semanticScores: Map<string, number>;
+}) {
+  const maxEngagement = Math.max(...notes.map(calculateEngagementRaw), 1);
+
+  return notes
+    .map((note) => {
+      const semanticScore = semanticScores.get(note.id) ?? 0;
+      const recommendation = calculateRecommendationForNote({
+        context,
+        maxEngagement,
+        note,
+        semanticSimilarity: semanticScore || 0.5,
+      });
+      const source = getSearchMatchSource(note);
+      const keywordScore = calculateKeywordScore(source, keyword);
+
+      return {
+        data: {
+          ...toNoteCard(note),
+          matchReasons: getSearchMatchReasons({
+            keyword,
+            semanticScore,
+            source,
+          }),
+          recommendationReason: recommendation.reason,
+          semanticScore: semanticScore ? Number(semanticScore.toFixed(3)) : undefined,
+        } satisfies SearchNoteData,
+        publishedAt: getNoteTimestamp(note),
+        rankingScore: keywordScore * 4 + semanticScore * 3 + recommendation.score,
+      };
+    })
+    .sort(
+      (left, right) =>
+        right.rankingScore - left.rankingScore ||
+        right.publishedAt - left.publishedAt ||
+        left.data.id.localeCompare(right.data.id),
+    )
+    .map((item) => item.data);
 }
 
 // 本地开发时 PostgreSQL 可能还没启动；只有连接类错误才进入 fixture fallback，
@@ -619,17 +1080,22 @@ function toNoteDetail(
   };
 }
 
-export async function getHomeFeedNotes(options: { limit?: number; viewerId?: string } = {}) {
+export async function getHomeFeedNotes(
+  options: { cursor?: string; limit?: number; viewerId?: string } = {},
+) {
   await connection();
 
   const limit = options.limit ?? 24;
 
   return withDatabaseFallback(
     async () => {
-      const viewerFilter = await getViewerContentFilter(options.viewerId);
-      // 首页 Feed 只展示已发布内容。当前按发布时间倒序，后续推荐流可以在
-      // 这个入口接入 Redis 候选池、推荐分排序或个性化过滤。
-      // viewerFilter 会在当前排序基础上先过滤屏蔽用户和不感兴趣笔记。
+      const [viewerFilter, recommendationContext] = await Promise.all([
+        getViewerContentFilter(options.viewerId),
+        getViewerRecommendationContext(options.viewerId),
+      ]);
+      // M4.1 Feed 仍然从数据库实时拉候选池，但排序已经不再只是发布时间倒序。
+      // 这里先把屏蔽/不感兴趣内容过滤掉，再用轻量推荐分融合兴趣标签、关注作者、
+      // 互动热度和新鲜度。后续 M4.2/M8 可以把候选池替换为 Redis 或推荐服务。
       const notes = await db.note.findMany({
         where: {
           ...createViewerNoteWhere(viewerFilter),
@@ -637,18 +1103,30 @@ export async function getHomeFeedNotes(options: { limit?: number; viewerId?: str
         },
         include: noteCardInclude,
         orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
-        take: limit,
+        take: Math.max(DEFAULT_CANDIDATE_POOL_SIZE, limit * 4),
       });
 
-      return notes.map(toNoteCard);
+      return sliceAfterCursor(
+        rankFeedCandidates(notes, recommendationContext),
+        options.cursor,
+        limit,
+      );
     },
-    () => getFixtureNotes().slice(0, limit),
+    () =>
+      sliceAfterCursor(
+        getFixtureNotes().map((note) => ({
+          ...note,
+          recommendationReason: "综合推荐",
+        })),
+        options.cursor,
+        limit,
+      ),
   );
 }
 
 export async function searchPublishedNotes(
   query: string | undefined,
-  options: { limit?: number; viewerId?: string } = {},
+  options: { cursor?: string; limit?: number; viewerId?: string } = {},
 ) {
   await connection();
 
@@ -657,61 +1135,74 @@ export async function searchPublishedNotes(
 
   return withDatabaseFallback(
     async () => {
-      const viewerFilter = await getViewerContentFilter(options.viewerId);
-      // 第一版搜索覆盖标题、正文、作者和标签，保持查询结果仍然只返回公开内容。
-      // 后续生活搜索可以在这里替换为全文索引、pgvector 语义召回或搜索服务。
-      // 搜索也应用 viewerFilter，避免用户在搜索里重新看到已屏蔽/不感兴趣内容。
+      const [viewerFilter, recommendationContext] = await Promise.all([
+        getViewerContentFilter(options.viewerId),
+        getViewerRecommendationContext(options.viewerId),
+      ]);
+      const semanticScores = await getSemanticSearchScores({
+        keyword,
+        limit: SEARCH_SEMANTIC_RECALL_LIMIT,
+        viewerFilter,
+      });
+      // M4.1 搜索先做“关键词召回 + pgvector 语义召回”的混合候选集。
+      // 排序阶段再叠加关键词命中位置、语义相似度和轻量推荐分，并返回命中解释。
       const notes = await db.note.findMany({
-        where: {
-          ...createViewerNoteWhere(viewerFilter),
-          status: NoteStatus.PUBLISHED,
-          ...(keyword
-            ? {
-                OR: [
-                  { title: { contains: keyword, mode: "insensitive" } },
-                  { content: { contains: keyword, mode: "insensitive" } },
-                  { author: { name: { contains: keyword, mode: "insensitive" } } },
-                  { author: { handle: { contains: keyword, mode: "insensitive" } } },
-                  {
-                    tags: {
-                      some: {
-                        tag: {
-                          name: { contains: keyword, mode: "insensitive" },
-                        },
-                      },
-                    },
-                  },
-                ],
-              }
-            : {}),
-        },
+        where: buildSearchWhere({
+          keyword,
+          semanticIds: [...semanticScores.keys()],
+          viewerFilter,
+        }),
         include: noteCardInclude,
         orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
-        take: limit,
+        take: Math.max(DEFAULT_CANDIDATE_POOL_SIZE, limit * 4),
       });
 
-      return notes.map(toNoteCard);
+      return sliceAfterCursor(
+        rankSearchCandidates({
+          context: recommendationContext,
+          keyword,
+          notes,
+          semanticScores,
+        }),
+        options.cursor,
+        limit,
+      );
     },
     () => {
       const fixtureNotes = getFixtureNotes();
+      const matchedNotes = !keyword
+        ? fixtureNotes
+        : fixtureNotes.filter((note) => {
+            const source = getCardSearchMatchSource(note);
+            const searchText = [
+              source.title,
+              source.body,
+              source.authorName,
+              source.authorHandle,
+              ...source.tags,
+            ]
+              .join(" ")
+              .toLowerCase();
 
-      if (!keyword) {
-        return fixtureNotes.slice(0, limit);
-      }
+            return searchText.includes(keyword.toLowerCase());
+          });
 
-      return fixtureNotes.filter((note) => {
-        const searchText = [
-          note.title,
-          note.excerpt,
-          note.author.name,
-          note.author.handle,
-          ...note.tags,
-        ]
-          .join(" ")
-          .toLowerCase();
+      return sliceAfterCursor(
+        matchedNotes.map((note) => {
+          const source = getCardSearchMatchSource(note);
 
-        return searchText.includes(keyword.toLowerCase());
-      }).slice(0, limit);
+          return {
+            ...note,
+            matchReasons: getSearchMatchReasons({
+              keyword,
+              source,
+            }),
+            recommendationReason: "综合推荐",
+          };
+        }),
+        options.cursor,
+        limit,
+      );
     },
   );
 }
