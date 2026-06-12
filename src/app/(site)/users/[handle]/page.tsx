@@ -1,12 +1,12 @@
 import Image from "next/image";
 import { notFound } from "next/navigation";
-import { Ban } from "lucide-react";
+import { Ban, Sparkles } from "lucide-react";
 
 import { NoteCard } from "@/components/note-card";
 import { Button } from "@/components/ui/button";
 import { getCurrentSession } from "@/lib/auth-boundary";
 import { toggleBlock, toggleFollow } from "@/lib/community-actions";
-import { getUserProfile } from "@/lib/content-data";
+import { getUserProfile, getUserProfileRecommendedNotes } from "@/lib/content-data";
 
 export default async function UserProfilePage({
   params,
@@ -23,6 +23,10 @@ export default async function UserProfilePage({
   if (!user) {
     notFound();
   }
+
+  const recommendedNotes = await getUserProfileRecommendedNotes(user.handle, {
+    viewerId: session?.user.id,
+  });
 
   return (
     <section className="space-y-6">
@@ -82,6 +86,19 @@ export default async function UserProfilePage({
         <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
           这个用户还没有发布笔记。
         </div>
+      )}
+      {recommendedNotes.length > 0 && (
+        <section className="space-y-4">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-teal-600" />
+            <h2 className="text-lg font-semibold text-slate-950">更多灵感</h2>
+          </div>
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {recommendedNotes.map((note) => (
+              <NoteCard key={note.id} note={note} />
+            ))}
+          </div>
+        </section>
       )}
     </section>
   );

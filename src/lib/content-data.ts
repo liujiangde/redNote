@@ -36,6 +36,7 @@ const MAX_DETAIL_COMMENT_PAGE_SIZE = 50;
 const COMMENT_REPLY_PREVIEW_LIMIT = 3;
 const DEFAULT_CANDIDATE_POOL_SIZE = 120;
 const DEFAULT_SIMILAR_NOTE_LIMIT = 3;
+const DEFAULT_PROFILE_RECOMMENDATION_LIMIT = 3;
 const SIMILAR_NOTE_CANDIDATE_POOL_SIZE = 48;
 const SEARCH_SEMANTIC_RECALL_LIMIT = 40;
 const SEARCH_DISCOVERY_LIMIT = 8;
@@ -2288,6 +2289,139 @@ export async function getUserProfile(handle: string, options: { viewerId?: strin
         isFollowing: false,
         notes: notes.map(toFixtureNoteCard),
       };
+    },
+  );
+}
+
+export async function getUserProfileRecommendedNotes(
+  handle: string,
+  options: { limit?: number; viewerId?: string } = {},
+) {
+  await connection();
+
+  const limit = options.limit ?? DEFAULT_PROFILE_RECOMMENDATION_LIMIT;
+
+  return withDatabaseFallback(
+    async () => {
+      const user = await db.user.findUnique({
+        where: {
+          handle,
+        },
+        select: {
+          id: true,
+          notes: {
+            where: {
+              status: NoteStatus.PUBLISHED,
+            },
+            select: {
+              tags: {
+                include: {
+                  tag: {
+                    select: {
+                      name: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!user) {
+        return [];
+      }
+
+      const blockState = await getViewerBlockState(options.viewerId, user.id);
+
+      if (blockState.targetBlocksViewer || blockState.viewerBlocksTarget) {
+        return [];
+      }
+
+      const viewerFilter = await getViewerContentFilter(options.viewerId);
+      const tagNames = Array.from(
+        new Set(
+          user.notes.flatMap((note) => note.tags.map((item) => item.tag.name)),
+        ),
+      );
+
+      let candidates = await db.note.findMany({
+        where: {
+          ...createViewerNoteWhere(viewerFilter),
+          authorId: {
+            not: user.id,
+          },
+          status: NoteStatus.PUBLISHED,
+          ...(tagNames.length
+            ? {
+                tags: {
+                  some: {
+                    tag: {
+                      name: {
+                        in: tagNames,
+                      },
+                    },
+                  },
+                },
+              }
+            : {}),
+        },
+        include: noteCardInclude,
+        orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+        take: Math.max(SIMILAR_NOTE_CANDIDATE_POOL_SIZE, limit * 4),
+      });
+
+      if (candidates.length < limit) {
+        const excludedIds = candidates.map((candidate) => candidate.id);
+        const recentCandidates = await db.note.findMany({
+          where: {
+            ...createViewerNoteWhere(viewerFilter),
+            authorId: {
+              not: user.id,
+            },
+            ...(excludedIds.length
+              ? {
+                  id: {
+                    notIn: excludedIds,
+                  },
+                }
+              : {}),
+            status: NoteStatus.PUBLISHED,
+          },
+          include: noteCardInclude,
+          orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+          take: limit - candidates.length,
+        });
+
+        candidates = [...candidates, ...recentCandidates];
+      }
+
+      return rankSimilarNoteCandidates({
+        authorId: user.id,
+        notes: candidates,
+        tagNames,
+      }).slice(0, limit);
+    },
+    () => {
+      const notes = demoNotes.filter((note) => note.author.handle === handle);
+      const tagSet = new Set(notes.flatMap((note) => note.tags.map((tag) => tag.toLowerCase())));
+
+      return demoNotes
+        .filter((note) => note.author.handle !== handle)
+        .map((note) => ({
+          data: {
+            ...toFixtureNoteCard(note),
+            recommendationReason: note.tags.some((tag) => tagSet.has(tag.toLowerCase()))
+              ? "相似标签"
+              : "近期热门",
+          },
+          score:
+            note.tags.filter((tag) => tagSet.has(tag.toLowerCase())).length * 100 +
+            note.score,
+        }))
+        .sort((left, right) => right.score - left.score)
+        .map((item) => item.data)
+        .slice(0, limit);
     },
   );
 }
