@@ -352,10 +352,10 @@ M2 基础版已经接通：
 - 登录：`src/app/(auth)/login/login-form.tsx` 调用 NextAuth Credentials，服务端在 `src/lib/auth.ts` 校验密码并写入 session。
 - 注册：`src/app/(auth)/register/actions.ts` 使用 Server Action 校验邮箱、用户名和密码，创建用户后跳转登录。
 - 发布：`src/app/(site)/publish/actions.ts` 使用 Server Action 校验登录态和表单字段，写入 `Note`、`NoteImage`、`Tag` 和 `note_embeddings`。
-- 上传：`src/app/api/v1/uploads/route.ts` 为登录用户签发短期上传 URL，客户端直传 MinIO/S3，发布提交时再保存图片 URL。
+- 上传：`src/app/api/v1/uploads/route.ts` 为登录用户签发短期上传 URL，客户端直传 MinIO/S3，发布提交时再保存图片 URL；本地 MinIO 已通过 `MINIO_API_CORS_ALLOW_ORIGIN` 放行开发源，`pnpm storage:bucket` 会创建 bucket 并尝试配置 bucket CORS。
 - 权限：`src/lib/auth-boundary.ts` 集中处理用户和管理员 session；`/publish` 要求登录，`/admin` 要求管理员角色。
 
-后续增强点：MinIO CORS、孤儿对象清理、上传进度恢复、移动端 token/session、发布草稿列表和图片 metadata 尺寸识别。
+后续增强点：孤儿对象清理、上传进度恢复、移动端 token/session、发布草稿列表和图片 metadata 尺寸识别。
 
 ## 国际化规划
 
@@ -385,7 +385,7 @@ M4.1 基础版的数据流如下：
 - Feed 读取走 `src/lib/content-data.ts` 的 `getHomeFeedNotes`：先过滤屏蔽用户和不感兴趣笔记，再按关注作者、兴趣标签、互动热度和新鲜度计算推荐分，最后按 cursor 截取页面。
 - 搜索读取走 `searchPublishedNotes`：关键词召回覆盖标题、正文、作者和标签；语义召回读取 `note_embeddings`，用 pgvector 距离补充候选；排序后返回 `matchReasons` 和 `recommendationReason`。
 - `/api/v1/feed` 和 `/api/v1/search` 只负责解析 `cursor/limit`、读取 session 和包统一响应，不重复实现排序业务。
-- pgvector、数据库或 embedding 服务不可用时，搜索会保留关键词召回；数据库端口不可达时才回退到 `src/lib/mock-data.ts` fixture。
+- pgvector、数据库或 embedding 服务不可用时，搜索会记录降级日志并保留关键词召回；数据库端口不可达时才回退到 `src/lib/mock-data.ts` fixture。
 
 M4.2 搜索发现基础版：
 
@@ -403,7 +403,7 @@ M4.2 搜索发现基础版：
 - 新鲜度：0.15
 - 关注作者：0.10
 
-后续推荐服务应继续把每个信号归一化到 0 到 1，并保留排序解释，方便调试和后台观察。Feed 推荐候选已经放入 Redis，详情页和作者主页已有基础推荐区；下一步重点是为排序规则补测试、pgvector 查询失败日志和基础监控。
+后续推荐服务应继续把每个信号归一化到 0 到 1，并保留排序解释，方便调试和后台观察。Feed 推荐候选已经放入 Redis，详情页和作者主页已有基础推荐区；推荐评分已有基础单元测试，语义召回失败已有降级日志。下一步重点是补更多排序边界测试和基础监控。
 
 ## 后台治理
 
