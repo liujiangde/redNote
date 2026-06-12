@@ -5,6 +5,12 @@ import { useActionState, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import type { ApiResponse } from "@/lib/api-contract";
+import {
+  isAllowedUploadImageContentType,
+  MAX_UPLOAD_IMAGE_SIZE_BYTES,
+  MAX_UPLOAD_IMAGE_SIZE_MB,
+  uploadImageAccept,
+} from "@/lib/upload-policy";
 
 import { publishNote, type PublishFormState } from "./actions";
 
@@ -38,6 +44,18 @@ export function PublishForm() {
     const file = event.target.files?.[0];
 
     if (!file) {
+      return;
+    }
+
+    if (!isAllowedUploadImageContentType(file.type)) {
+      setUploadState("仅支持 JPEG、PNG、WebP 或 GIF 图片。");
+      event.target.value = "";
+      return;
+    }
+
+    if (file.size > MAX_UPLOAD_IMAGE_SIZE_BYTES) {
+      setUploadState(`图片不能超过 ${MAX_UPLOAD_IMAGE_SIZE_MB}MB。`);
+      event.target.value = "";
       return;
     }
 
@@ -132,7 +150,7 @@ export function PublishForm() {
             <ImagePlus className="mx-auto h-8 w-8" />
             <p className="mt-2 text-sm font-medium">图片上传区</p>
             <input
-              accept="image/*"
+              accept={uploadImageAccept}
               className="mt-4 text-sm"
               disabled={uploading}
               onChange={handleImageChange}
