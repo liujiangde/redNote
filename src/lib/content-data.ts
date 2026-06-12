@@ -40,6 +40,8 @@ const SEARCH_DISCOVERY_LIMIT = 8;
 const SEARCH_HISTORY_LIMIT = 8;
 const SEARCH_REDIS_TTL_SECONDS = 60 * 60 * 24 * 14;
 const SEARCH_CACHE_TTL_SECONDS = 60 * 5;
+const FEED_CANDIDATE_CACHE_TTL_SECONDS = 60;
+const FEED_CANDIDATE_CACHE_KEY = "rednote:feed:candidates:v1";
 const SEARCH_HOT_KEY = "rednote:search:hot:v1";
 const SEARCH_TOPIC_CACHE_KEY = "rednote:search:topics:v1";
 
@@ -430,6 +432,13 @@ type RecommendationContext = {
   preferredTags: Set<string>;
 };
 
+type FeedCandidateData = NoteCardData & {
+  authorId: string;
+  createdAtMs: number;
+  engagementRaw: number;
+  publishedAtMs: number;
+};
+
 type SearchMatchSource = {
   authorHandle: string;
   authorName: string;
@@ -471,11 +480,17 @@ function calculateFreshnessSignal(note: Pick<NoteCardRecord, "createdAt" | "publ
 function calculateTagAffinity(note: NoteCardRecord, preferredTags: Set<string>) {
   const noteTags = note.tags.map((item) => item.tag.name.toLowerCase());
 
+  return calculateTagAffinityForTags(noteTags, preferredTags);
+}
+
+function calculateTagAffinityForTags(noteTags: string[], preferredTags: Set<string>) {
+  const normalizedTags = noteTags.map((tag) => tag.toLowerCase());
+
   if (!preferredTags.size) {
     return 0.5;
   }
 
-  const overlapCount = noteTags.filter((tag) => preferredTags.has(tag)).length;
+  const overlapCount = normalizedTags.filter((tag) => preferredTags.has(tag)).length;
 
   return Math.min(1, overlapCount / Math.min(3, preferredTags.size));
 }
@@ -613,24 +628,66 @@ function sliceAfterCursor<T extends { id: string }>(
   return items.slice(cursorIndex + 1, cursorIndex + 1 + limit);
 }
 
-function rankFeedCandidates(notes: NoteCardRecord[], context: RecommendationContext) {
-  const maxEngagement = Math.max(...notes.map(calculateEngagementRaw), 1);
+function calculateRecommendationForFeedCandidate({
+  candidate,
+  context,
+  maxEngagement,
+}: {
+  candidate: FeedCandidateData;
+  context: RecommendationContext;
+  maxEngagement: number;
+}) {
+  const signal = {
+    semanticSimilarity: 0.5,
+    tagMatch: calculateTagAffinityForTags(candidate.tags, context.preferredTags),
+    engagement: maxEngagement > 0 ? candidate.engagementRaw / maxEngagement : 0,
+    freshness: calculateFreshnessSignal({
+      createdAt: new Date(candidate.createdAtMs),
+      publishedAt: new Date(candidate.publishedAtMs),
+    }),
+    followedAuthor: context.followingIds.has(candidate.authorId) ? 1 : 0,
+  };
 
-  return notes
-    .map((note) => {
-      const recommendation = calculateRecommendationForNote({
+  return {
+    reason: explainRecommendation(signal),
+    score: scoreRecommendation(signal),
+    signal,
+  };
+}
+
+function rankFeedCandidateData(candidates: FeedCandidateData[], context: RecommendationContext) {
+  const maxEngagement = Math.max(...candidates.map((candidate) => candidate.engagementRaw), 1);
+
+  return candidates
+    .map((candidate) => {
+      const card: NoteCardData = {
+        author: candidate.author,
+        comments: candidate.comments,
+        createdAt: candidate.createdAt,
+        excerpt: candidate.excerpt,
+        favorites: candidate.favorites,
+        id: candidate.id,
+        imageAlt: candidate.imageAlt,
+        imageUrl: candidate.imageUrl,
+        likes: candidate.likes,
+        score: candidate.score,
+        tags: candidate.tags,
+        title: candidate.title,
+        views: candidate.views,
+      };
+      const recommendation = calculateRecommendationForFeedCandidate({
+        candidate,
         context,
         maxEngagement,
-        note,
       });
 
       return {
         data: {
-          ...toNoteCard(note),
+          ...card,
           recommendationReason: recommendation.reason,
           score: Math.round(recommendation.score * 100),
         },
-        publishedAt: getNoteTimestamp(note),
+        publishedAt: candidate.publishedAtMs || candidate.createdAtMs,
         recommendationScore: recommendation.score,
       };
     })
@@ -641,6 +698,18 @@ function rankFeedCandidates(notes: NoteCardRecord[], context: RecommendationCont
         left.data.id.localeCompare(right.data.id),
     )
     .map((item) => item.data);
+}
+
+function filterFeedCandidates(candidates: FeedCandidateData[], viewerFilter: ViewerContentFilter) {
+  return candidates.filter(
+    (candidate) =>
+      !viewerFilter.hiddenAuthorIds.includes(candidate.authorId) &&
+      !viewerFilter.dismissedNoteIds.includes(candidate.id),
+  );
+}
+
+function hasViewerContentFilter(filter: ViewerContentFilter) {
+  return filter.hiddenAuthorIds.length > 0 || filter.dismissedNoteIds.length > 0;
 }
 
 function getSearchMatchSource(note: NoteCardRecord): SearchMatchSource {
@@ -1497,6 +1566,62 @@ function toNoteCard(note: NoteCardRecord): NoteCardData {
   };
 }
 
+function toFeedCandidateData(note: NoteCardRecord): FeedCandidateData {
+  return {
+    ...toNoteCard(note),
+    authorId: note.authorId,
+    createdAtMs: note.createdAt.getTime(),
+    engagementRaw: calculateEngagementRaw(note),
+    publishedAtMs: getNoteTimestamp(note),
+  };
+}
+
+function getFeedCandidateCacheKey(poolSize: number) {
+  return `${FEED_CANDIDATE_CACHE_KEY}:${poolSize}`;
+}
+
+async function readFeedCandidatePoolFromDatabase(poolSize: number, viewerFilter?: ViewerContentFilter) {
+  const notes = await db.note.findMany({
+    where: {
+      ...(viewerFilter ? createViewerNoteWhere(viewerFilter) : {}),
+      status: NoteStatus.PUBLISHED,
+    },
+    include: noteCardInclude,
+    orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+    take: poolSize,
+  });
+
+  return notes.map(toFeedCandidateData);
+}
+
+async function getCachedFeedCandidatePool(poolSize: number) {
+  if (poolSize !== DEFAULT_CANDIDATE_POOL_SIZE) {
+    return readFeedCandidatePoolFromDatabase(poolSize);
+  }
+
+  const cacheKey = getFeedCandidateCacheKey(poolSize);
+  const cachedCandidates = await readJsonCache<FeedCandidateData[]>(cacheKey);
+
+  if (cachedCandidates?.length) {
+    return cachedCandidates;
+  }
+
+  const candidates = await readFeedCandidatePoolFromDatabase(poolSize);
+  await writeJsonCache(cacheKey, candidates, FEED_CANDIDATE_CACHE_TTL_SECONDS);
+
+  return candidates;
+}
+
+export async function invalidateFeedCandidateCache() {
+  const client = await getOptionalRedisClient();
+
+  if (!client) {
+    return;
+  }
+
+  await client.del(getFeedCandidateCacheKey(DEFAULT_CANDIDATE_POOL_SIZE));
+}
+
 function toCommentAuthor(author: {
   id: string;
   name: string;
@@ -1578,21 +1703,18 @@ export async function getHomeFeedNotes(
         getViewerContentFilter(options.viewerId),
         getViewerRecommendationContext(options.viewerId),
       ]);
-      // M4.1 Feed 仍然从数据库实时拉候选池，但排序已经不再只是发布时间倒序。
-      // 这里先把屏蔽/不感兴趣内容过滤掉，再用轻量推荐分融合兴趣标签、关注作者、
-      // 互动热度和新鲜度。后续 M4.2/M8 可以把候选池替换为 Redis 或推荐服务。
-      const notes = await db.note.findMany({
-        where: {
-          ...createViewerNoteWhere(viewerFilter),
-          status: NoteStatus.PUBLISHED,
-        },
-        include: noteCardInclude,
-        orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
-        take: Math.max(DEFAULT_CANDIDATE_POOL_SIZE, limit * 4),
-      });
+      const poolSize = Math.max(DEFAULT_CANDIDATE_POOL_SIZE, limit * 4);
+      const publicCandidates = await getCachedFeedCandidatePool(poolSize);
+      let candidates = filterFeedCandidates(publicCandidates, viewerFilter);
+
+      // 公共候选池命中后仍要保证个人过滤不缩短列表。用户屏蔽/不感兴趣很多时，
+      // 回源读取一次带过滤候选，避免缓存池前 120 条被过滤后看不到后续内容。
+      if (hasViewerContentFilter(viewerFilter) && candidates.length < limit) {
+        candidates = await readFeedCandidatePoolFromDatabase(poolSize, viewerFilter);
+      }
 
       return sliceAfterCursor(
-        rankFeedCandidates(notes, recommendationContext),
+        rankFeedCandidateData(candidates, recommendationContext),
         options.cursor,
         limit,
       );

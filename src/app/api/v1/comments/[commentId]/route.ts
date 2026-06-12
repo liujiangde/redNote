@@ -4,6 +4,7 @@ import { apiError, apiErrorCodes, apiSuccess } from "@/lib/api-contract";
 import { getApiSession } from "@/lib/api-session";
 import { communityApiError } from "@/lib/community-api-response";
 import { commentReportSchema, deleteComment, reportComment } from "@/lib/community-service";
+import { invalidateFeedCandidateCache } from "@/lib/content-data";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +31,8 @@ export async function DELETE(
   if (!result.ok) {
     return communityApiError(result.error);
   }
+
+  await invalidateFeedCandidateCache();
 
   return apiSuccess({
     commentId: result.data.commentId,

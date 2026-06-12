@@ -15,6 +15,7 @@ import {
   toggleUserBlock,
   toggleUserFollow,
 } from "@/lib/community-service";
+import { invalidateFeedCandidateCache } from "@/lib/content-data";
 
 // 这个文件是 Web 表单的 Server Action 边界：
 // - 负责把未登录用户 redirect 到登录页。
@@ -37,9 +38,10 @@ async function requireUserOrRedirect(callbackUrl: string) {
   }
 }
 
-function revalidateNoteInteractionPaths(note: PublishedNoteTarget) {
+async function revalidateNoteInteractionPaths(note: PublishedNoteTarget) {
   // 互动会影响详情页、作者页和列表页计数；MVP 先精准刷新这些路径。
-  // 后续接入推荐缓存后，应在这里扩展标签缓存或 Redis 计数失效逻辑。
+  // Feed 候选池缓存保存互动计数，写入成功后先清缓存再刷新页面。
+  await invalidateFeedCandidateCache();
   revalidatePath("/");
   revalidatePath("/search");
   revalidatePath(`/notes/${note.id}`);
@@ -63,7 +65,7 @@ export async function toggleLike(noteIdOrSlug: string) {
     return;
   }
 
-  revalidateNoteInteractionPaths(result.data.note);
+  await revalidateNoteInteractionPaths(result.data.note);
 }
 
 export async function toggleFavorite(noteIdOrSlug: string) {
@@ -82,7 +84,7 @@ export async function toggleFavorite(noteIdOrSlug: string) {
     return;
   }
 
-  revalidateNoteInteractionPaths(result.data.note);
+  await revalidateNoteInteractionPaths(result.data.note);
 }
 
 export async function createComment(
@@ -125,7 +127,7 @@ export async function createComment(
     return;
   }
 
-  revalidateNoteInteractionPaths(result.data.note);
+  await revalidateNoteInteractionPaths(result.data.note);
 }
 
 export async function deleteOwnComment(commentId: string) {
@@ -140,7 +142,7 @@ export async function deleteOwnComment(commentId: string) {
     return;
   }
 
-  revalidateNoteInteractionPaths(result.data.note);
+  await revalidateNoteInteractionPaths(result.data.note);
 }
 
 export async function reportVisibleComment(commentId: string, formData: FormData) {

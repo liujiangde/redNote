@@ -2,6 +2,7 @@ import { apiError, apiErrorCodes, apiSuccess } from "@/lib/api-contract";
 import { getApiSession } from "@/lib/api-session";
 import { communityApiError } from "@/lib/community-api-response";
 import { toggleNoteFavorite } from "@/lib/community-service";
+import { invalidateFeedCandidateCache } from "@/lib/content-data";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,8 @@ export async function POST(
   if (!result.ok) {
     return communityApiError(result.error);
   }
+
+  await invalidateFeedCandidateCache();
 
   return apiSuccess({
     favoriteCount: result.data.favoriteCount,

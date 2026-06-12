@@ -9,6 +9,7 @@ import { z } from "zod";
 import { NoteStatus } from "@/generated/prisma/client";
 import { requireUserSession } from "@/lib/auth-boundary";
 import { createEmbedding } from "@/lib/ai/embeddings";
+import { invalidateFeedCandidateCache } from "@/lib/content-data";
 import { db } from "@/lib/db";
 import { formatPgVector } from "@/lib/vector";
 
@@ -138,6 +139,10 @@ export async function publishNote(
     formatPgVector(embedding),
     sourceText,
   );
+
+  if (status === NoteStatus.PUBLISHED) {
+    await invalidateFeedCandidateCache();
+  }
 
   revalidatePath("/");
   revalidatePath("/search");

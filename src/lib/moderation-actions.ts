@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 
 import { AuthorizationError, requireAdminSession } from "@/lib/auth-boundary";
 import { moderateCommentReport } from "@/lib/community-service";
+import { invalidateFeedCandidateCache } from "@/lib/content-data";
 
 async function requireAdminOrRedirect() {
   try {
@@ -71,6 +72,10 @@ export async function hideReportedComment(reportId: string, formData: FormData) 
   });
 
   if (result.ok) {
+    if (result.data.note) {
+      await invalidateFeedCandidateCache();
+    }
+
     revalidateModerationPaths(result.data.note);
   }
 }
