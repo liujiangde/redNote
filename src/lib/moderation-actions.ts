@@ -23,9 +23,10 @@ async function requireAdminOrRedirect() {
   }
 }
 
-function revalidateModerationPaths(note: { id: string; slug: string } | null) {
+function revalidateModerationPaths(reportId: string, note: { id: string; slug: string } | null) {
   revalidatePath("/admin");
   revalidatePath("/admin/reports");
+  revalidatePath(`/admin/reports/${reportId}`);
 
   if (note) {
     revalidatePath(`/notes/${note.id}`);
@@ -42,7 +43,7 @@ export async function markCommentReportReviewing(reportId: string) {
   });
 
   if (result.ok) {
-    revalidateModerationPaths(result.data.note);
+    revalidateModerationPaths(result.data.reportId, result.data.note);
   }
 }
 
@@ -57,7 +58,7 @@ export async function rejectCommentReport(reportId: string, formData: FormData) 
   });
 
   if (result.ok) {
-    revalidateModerationPaths(result.data.note);
+    revalidateModerationPaths(result.data.reportId, result.data.note);
   }
 }
 
@@ -76,6 +77,6 @@ export async function hideReportedComment(reportId: string, formData: FormData) 
       await invalidateFeedCandidateCache();
     }
 
-    revalidateModerationPaths(result.data.note);
+    revalidateModerationPaths(result.data.reportId, result.data.note);
   }
 }

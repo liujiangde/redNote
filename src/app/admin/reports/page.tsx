@@ -1,10 +1,7 @@
+import Link from "next/link";
+
 import { getAdminReports } from "@/lib/content-data";
-import {
-  hideReportedComment,
-  markCommentReportReviewing,
-  rejectCommentReport,
-} from "@/lib/moderation-actions";
-import { Button } from "@/components/ui/button";
+import { ReportModerationActions } from "@/app/admin/reports/report-moderation-actions";
 
 export default async function AdminReportsPage() {
   // 举报管理页先展示处理队列，后续详情页会承载状态流转、处理记录和申诉信息。
@@ -18,11 +15,12 @@ export default async function AdminReportsPage() {
       </div>
       <div className="grid gap-4 lg:grid-cols-3">
         {reports.map((item) => {
-          const canModerateComment =
+          const canModerateComment = Boolean(
             item.targetType === "COMMENT" &&
-            item.commentId &&
-            item.status !== "RESOLVED" &&
-            item.status !== "REJECTED";
+              item.commentId &&
+              item.status !== "RESOLVED" &&
+              item.status !== "REJECTED",
+          );
 
           return (
             <article className="rounded-lg border border-slate-200 bg-white p-4" key={item.id}>
@@ -42,27 +40,15 @@ export default async function AdminReportsPage() {
                 <p>举报人：{item.reporterName}</p>
                 <p>时间：{item.createdAt}</p>
               </div>
-              {canModerateComment && (
-                <div className="mt-4 grid gap-2">
-                  <form action={markCommentReportReviewing.bind(null, item.id)}>
-                    <Button className="w-full" type="submit" variant="secondary">
-                      开始处理
-                    </Button>
-                  </form>
-                  <form action={hideReportedComment.bind(null, item.id)}>
-                    <input name="resolution" type="hidden" value="评论已隐藏，举报已处理。" />
-                    <Button className="w-full" type="submit">
-                      隐藏评论并解决
-                    </Button>
-                  </form>
-                  <form action={rejectCommentReport.bind(null, item.id)}>
-                    <input name="resolution" type="hidden" value="暂未发现违规，举报已驳回。" />
-                    <Button className="w-full" type="submit" variant="ghost">
-                      驳回举报
-                    </Button>
-                  </form>
-                </div>
-              )}
+              <div className="mt-4 grid gap-2">
+                <Link
+                  className="inline-flex h-10 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 transition hover:bg-slate-50"
+                  href={`/admin/reports/${item.id}`}
+                >
+                  查看详情
+                </Link>
+                <ReportModerationActions canModerateComment={canModerateComment} reportId={item.id} />
+              </div>
             </article>
           );
         })}

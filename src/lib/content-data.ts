@@ -314,6 +314,49 @@ export type AdminReportRow = {
   createdAt: string;
 };
 
+export type AdminReportAuditLog = {
+  id: string;
+  action: string;
+  actorName: string;
+  actorHandle: string;
+  metadata: string | null;
+  createdAt: string;
+};
+
+export type AdminReportDetail = AdminReportRow & {
+  auditLogs: AdminReportAuditLog[];
+  comment: {
+    id: string;
+    authorName: string;
+    authorHandle: string;
+    content: string;
+    noteHref: string | null;
+    noteTitle: string | null;
+    status: string;
+    createdAt: string;
+  } | null;
+  note: {
+    id: string;
+    authorName: string;
+    authorHandle: string;
+    content: string;
+    href: string;
+    status: string;
+    title: string;
+  } | null;
+  reportedUser: {
+    id: string;
+    handle: string;
+    name: string;
+    role: string;
+    createdAt: string;
+  } | null;
+  reporterEmail: string;
+  reporterHandle: string;
+  targetHref: string | null;
+  updatedAt: string;
+};
+
 export type AdminUserRow = {
   id: string;
   name: string;
@@ -2604,8 +2647,7 @@ export async function getAdminReports(limit = 50) {
 
   return withDatabaseFallback(
     async () => {
-      // 举报列表把不同目标类型统一压成一行展示数据，方便后台队列先跑起来；
-      // 详情、状态流转和处理历史后续应拆到独立治理服务。
+      // 举报列表把不同目标类型统一压成一行展示数据；详情页再读取目标信息和处理历史。
       const reports = await db.report.findMany({
         include: {
           reporter: {
@@ -2662,6 +2704,200 @@ export async function getAdminReports(limit = 50) {
         status: report.status,
         createdAt: "示例数据",
       })),
+  );
+}
+
+function stringifyAuditMetadata(metadata: Prisma.JsonValue | null) {
+  if (metadata === null) {
+    return null;
+  }
+
+  return JSON.stringify(metadata);
+}
+
+export async function getAdminReportDetail(reportId: string): Promise<AdminReportDetail | null> {
+  await connection();
+
+  return withDatabaseFallback<AdminReportDetail | null>(
+    async () => {
+      const report = await db.report.findUnique({
+        where: {
+          id: reportId,
+        },
+        include: {
+          reporter: {
+            select: {
+              email: true,
+              handle: true,
+              name: true,
+            },
+          },
+          note: {
+            select: {
+              author: {
+                select: {
+                  handle: true,
+                  name: true,
+                },
+              },
+              content: true,
+              id: true,
+              slug: true,
+              status: true,
+              title: true,
+            },
+          },
+          comment: {
+            select: {
+              author: {
+                select: {
+                  handle: true,
+                  name: true,
+                },
+              },
+              content: true,
+              createdAt: true,
+              id: true,
+              note: {
+                select: {
+                  id: true,
+                  slug: true,
+                  title: true,
+                },
+              },
+              status: true,
+            },
+          },
+          reportedUser: {
+            select: {
+              createdAt: true,
+              handle: true,
+              id: true,
+              name: true,
+              role: true,
+            },
+          },
+        },
+      });
+
+      if (!report) {
+        return null;
+      }
+
+      const auditLogs = await db.adminAuditLog.findMany({
+        where: {
+          entityId: report.id,
+          entityType: "REPORT",
+        },
+        include: {
+          actor: {
+            select: {
+              handle: true,
+              name: true,
+            },
+          },
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+        take: 20,
+      });
+      const targetHref =
+        report.targetType === ReportTargetType.NOTE && report.note
+          ? `/notes/${report.note.slug || report.note.id}`
+          : report.targetType === ReportTargetType.COMMENT && report.comment?.note
+            ? `/notes/${report.comment.note.slug || report.comment.note.id}`
+            : report.targetType === ReportTargetType.USER && report.reportedUser
+              ? `/users/${report.reportedUser.handle}`
+              : null;
+
+      return {
+        auditLogs: auditLogs.map((log) => ({
+          action: log.action,
+          actorHandle: log.actor?.handle ?? "system",
+          actorName: log.actor?.name ?? "System",
+          createdAt: formatDate(log.createdAt),
+          id: log.id,
+          metadata: stringifyAuditMetadata(log.metadata),
+        })),
+        comment: report.comment
+          ? {
+              authorHandle: report.comment.author.handle,
+              authorName: report.comment.author.name,
+              content: report.comment.content,
+              createdAt: formatDate(report.comment.createdAt),
+              id: report.comment.id,
+              noteHref: report.comment.note
+                ? `/notes/${report.comment.note.slug || report.comment.note.id}`
+                : null,
+              noteTitle: report.comment.note?.title ?? null,
+              status: report.comment.status,
+            }
+          : null,
+        commentId: report.comment?.id ?? null,
+        createdAt: formatDate(report.createdAt),
+        detail: report.detail,
+        id: report.id,
+        note: report.note
+          ? {
+              authorHandle: report.note.author.handle,
+              authorName: report.note.author.name,
+              content: truncateText(report.note.content, 180),
+              href: `/notes/${report.note.slug || report.note.id}`,
+              id: report.note.id,
+              status: report.note.status,
+              title: report.note.title,
+            }
+          : null,
+        reason: report.reason,
+        reportedUser: report.reportedUser
+          ? {
+              createdAt: formatDate(report.reportedUser.createdAt),
+              handle: report.reportedUser.handle,
+              id: report.reportedUser.id,
+              name: report.reportedUser.name,
+              role: report.reportedUser.role,
+            }
+          : null,
+        reporterEmail: report.reporter.email,
+        reporterHandle: report.reporter.handle,
+        reporterName: report.reporter.name,
+        resolution: report.resolution,
+        status: report.status,
+        target: getReportTarget(report),
+        targetHref,
+        targetType: report.targetType,
+        updatedAt: formatDate(report.updatedAt),
+      };
+    },
+    () => {
+      const report = fixtureModerationQueue.find((item) => item.id === reportId);
+
+      if (!report) {
+        return null;
+      }
+
+      return {
+        auditLogs: [],
+        comment: null,
+        commentId: null,
+        createdAt: "示例数据",
+        detail: null,
+        id: report.id,
+        note: null,
+        reason: report.reason,
+        reportedUser: null,
+        reporterEmail: "fixture@example.com",
+        reporterHandle: "fixture",
+        reporterName: "Fixture",
+        resolution: null,
+        status: report.status,
+        target: report.target,
+        targetHref: null,
+        targetType: ReportTargetType.NOTE,
+        updatedAt: "示例数据",
+      };
+    },
   );
 }
 
