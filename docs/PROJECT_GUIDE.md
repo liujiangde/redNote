@@ -112,6 +112,7 @@ M1.5 基础版已经落地：
 | `/admin` | `src/app/admin/page.tsx` | 管理后台数据看板 |
 | `/admin/notes` | `src/app/admin/notes/page.tsx` | 笔记管理 |
 | `/admin/reports` | `src/app/admin/reports/page.tsx` | 举报管理 |
+| `/admin/reports/[reportId]` | `src/app/admin/reports/[reportId]/page.tsx` | 举报详情、目标信息和处理历史 |
 | `/admin/users` | `src/app/admin/users/page.tsx` | 用户管理 |
 | `/api/auth/[...nextauth]` | `src/app/api/auth/[...nextauth]/route.ts` | NextAuth handler |
 | `/api/health` | `src/app/api/health/route.ts` | 环境状态检查 |
@@ -354,7 +355,7 @@ M2 基础版已经接通：
 - 登录：`src/app/(auth)/login/login-form.tsx` 调用 NextAuth Credentials，服务端在 `src/lib/auth.ts` 校验密码并写入 session。
 - 注册：`src/app/(auth)/register/actions.ts` 使用 Server Action 校验邮箱、用户名和密码，创建用户后跳转登录。
 - 发布：`src/app/(site)/publish/actions.ts` 使用 Server Action 校验登录态和表单字段，写入 `Note`、`NoteImage`、`Tag` 和 `note_embeddings`。
-- 上传：`src/app/api/v1/uploads/route.ts` 为登录用户签发短期上传 URL，客户端直传 MinIO/S3，发布提交时再保存图片 URL；本地 MinIO 已通过 `MINIO_API_CORS_ALLOW_ORIGIN` 放行开发源，`pnpm storage:bucket` 会创建 bucket 并尝试配置 bucket CORS。
+- 上传：`src/app/api/v1/uploads/route.ts` 为登录用户签发短期上传 URL，客户端直传 MinIO/S3，发布提交时再保存图片 URL；`src/lib/upload-policy.ts` 统一校验图片类型、大小和对象 key，本地 MinIO 已通过 `MINIO_API_CORS_ALLOW_ORIGIN` 放行开发源，`pnpm storage:bucket` 会创建 bucket 并尝试配置 bucket CORS。
 - 权限：`src/lib/auth-boundary.ts` 集中处理用户和管理员 session；`/publish` 要求登录，`/admin` 要求管理员角色。
 
 后续增强点：孤儿对象清理、上传进度恢复、移动端 token/session、发布草稿列表和图片 metadata 尺寸识别。
