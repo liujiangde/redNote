@@ -860,6 +860,18 @@ function getSearchMatchReasons({
   return reasons.slice(0, 3);
 }
 
+function summarizeError(error: unknown) {
+  if (typeof error !== "object" || error === null) {
+    return { message: String(error) };
+  }
+
+  return {
+    code: "code" in error ? String(error.code) : undefined,
+    message: "message" in error ? String(error.message) : undefined,
+    name: "name" in error ? String(error.name) : undefined,
+  };
+}
+
 async function getSemanticSearchScores({
   keyword,
   limit,
@@ -893,9 +905,14 @@ async function getSemanticSearchScores({
     );
 
     return new Map(rows.map((row) => [row.id, Number(row.semanticScore) || 0]));
-  } catch {
+  } catch (error) {
     // pgvector、数据库或 embedding 服务不可用时，搜索仍然保留关键词召回。
     // 这让本地开发不被外部服务阻塞，生产环境则应监控语义召回失败率。
+    console.warn("[search] Semantic recall failed; falling back to keyword search.", {
+      ...summarizeError(error),
+      keywordLength: normalizedKeyword.length,
+      limit,
+    });
     return new Map<string, number>();
   }
 }
