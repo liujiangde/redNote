@@ -10,6 +10,7 @@ export const s3Client = new S3Client({
   region: process.env.S3_REGION ?? "us-east-1",
   endpoint: process.env.S3_ENDPOINT,
   forcePathStyle: process.env.S3_FORCE_PATH_STYLE !== "false",
+  requestChecksumCalculation: "WHEN_REQUIRED",
   credentials: {
     accessKeyId: process.env.S3_ACCESS_KEY_ID ?? "rednote",
     secretAccessKey: process.env.S3_SECRET_ACCESS_KEY ?? "rednote-secret",

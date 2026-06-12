@@ -33,6 +33,7 @@ services:
     environment:
       MINIO_ROOT_USER: rednote
       MINIO_ROOT_PASSWORD: rednote-secret
+      MINIO_API_CORS_ALLOW_ORIGIN: "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001"
     ports:
       - "${MINIO_API_PORT:-9000}:9000"
       - "${MINIO_CONSOLE_PORT:-9001}:9001"
