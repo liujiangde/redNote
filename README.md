@@ -110,7 +110,9 @@ nanqiao@rednote.local / rednote123
 - `pnpm services:up` 启动 PostgreSQL + pgvector、Redis、MinIO
 - `pnpm services:down` 停止本地 Docker Compose 服务
 - `pnpm services:logs` 查看本地服务日志
-- `pnpm run ci` 运行 migration 审查、ESLint、单元测试和 TypeScript 检查
+- `pnpm run ci` 运行 migration 审查、环境变量检查、ESLint、单元测试和 TypeScript 检查
+- `pnpm env:check` 检查本地环境变量并提示开发 fallback
+- `pnpm env:check:production` 按生产要求检查必填变量和本地默认值
 - `pnpm lint` 运行 ESLint
 - `pnpm test` 运行 Node 内置测试（通过 `tsx --test` 执行 TypeScript 测试）
 - `pnpm typecheck` 生成 Prisma Client 并运行 TypeScript 检查

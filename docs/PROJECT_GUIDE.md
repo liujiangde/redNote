@@ -76,7 +76,7 @@ M1.5 基础版已经落地：
 - `src/lib/i18n.ts`：`zh-CN`、`en-US` message dictionary 和基础 formatter。
 - `docker-compose.yml`、`pnpm services:up`：PostgreSQL + pgvector、Redis、MinIO 一组命令启动。
 - `scripts/check-migrations.ts`、`pnpm migration:check`：pgvector 相关破坏性 migration 审查。
-- `.github/workflows/ci.yml`：GitHub Actions 运行 migration check、lint、typecheck。
+- `.github/workflows/ci.yml`：GitHub Actions 运行 migration check、环境变量检查、lint、单元测试和 typecheck。
 
 ## 并发和容量策略
 
@@ -247,6 +247,8 @@ node --input-type=module -e "import 'dotenv/config'; import pg from 'pg'; const 
 | `OPENAI_EMBEDDING_MODEL` | embedding 模型 | `text-embedding-3-small` |
 | `NEXTAUTH_SECRET` | NextAuth 会话签名 | 生产环境必须设置 |
 | `NEXTAUTH_URL` | NextAuth 回调 URL | 本地通常是 `http://localhost:3000` |
+
+`pnpm env:check` 会检查本地配置并提示哪些变量正在使用开发 fallback；`pnpm env:check:production` 会按生产要求失败退出，确保必填变量存在且没有继续使用本地默认连接和对象存储密钥。
 
 ## 开发流程
 
