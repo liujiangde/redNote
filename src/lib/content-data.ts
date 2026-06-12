@@ -35,6 +35,8 @@ const DEFAULT_DETAIL_COMMENT_PAGE_SIZE = 10;
 const MAX_DETAIL_COMMENT_PAGE_SIZE = 50;
 const COMMENT_REPLY_PREVIEW_LIMIT = 3;
 const DEFAULT_CANDIDATE_POOL_SIZE = 120;
+const DEFAULT_SIMILAR_NOTE_LIMIT = 3;
+const SIMILAR_NOTE_CANDIDATE_POOL_SIZE = 48;
 const SEARCH_SEMANTIC_RECALL_LIMIT = 40;
 const SEARCH_DISCOVERY_LIMIT = 8;
 const SEARCH_HISTORY_LIMIT = 8;
@@ -710,6 +712,53 @@ function filterFeedCandidates(candidates: FeedCandidateData[], viewerFilter: Vie
 
 function hasViewerContentFilter(filter: ViewerContentFilter) {
   return filter.hiddenAuthorIds.length > 0 || filter.dismissedNoteIds.length > 0;
+}
+
+function rankSimilarNoteCandidates({
+  authorId,
+  notes,
+  tagNames,
+}: {
+  authorId: string;
+  notes: NoteCardRecord[];
+  tagNames: string[];
+}) {
+  const tagSet = new Set(tagNames.map((tag) => tag.toLowerCase()));
+  const maxEngagement = Math.max(...notes.map(calculateEngagementRaw), 1);
+
+  return notes
+    .map((note) => {
+      const matchedTags = note.tags
+        .map((item) => item.tag.name)
+        .filter((tag) => tagSet.has(tag.toLowerCase()));
+      const sameAuthor = note.authorId === authorId;
+      const engagement = calculateEngagementRaw(note) / maxEngagement;
+      const score =
+        matchedTags.length * 100 +
+        (sameAuthor ? 25 : 0) +
+        engagement * 20 +
+        calculateFreshnessSignal(note) * 10;
+
+      return {
+        data: {
+          ...toNoteCard(note),
+          recommendationReason: matchedTags.length
+            ? `相似标签：${matchedTags.slice(0, 2).join("、")}`
+            : sameAuthor
+              ? "同作者"
+              : "近期热门",
+        },
+        publishedAt: getNoteTimestamp(note),
+        score,
+      };
+    })
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        right.publishedAt - left.publishedAt ||
+        left.data.id.localeCompare(right.data.id),
+    )
+    .map((item) => item.data);
 }
 
 function getSearchMatchSource(note: NoteCardRecord): SearchMatchSource {
@@ -2012,6 +2061,130 @@ export async function getPublishedNoteDetail(
           hasNextPage: false,
         },
       };
+    },
+  );
+}
+
+export async function getSimilarPublishedNotes(
+  noteIdOrSlug: string,
+  options: { limit?: number; viewerId?: string } = {},
+) {
+  await connection();
+
+  const limit = options.limit ?? DEFAULT_SIMILAR_NOTE_LIMIT;
+
+  return withDatabaseFallback(
+    async () => {
+      const viewerFilter = await getViewerContentFilter(options.viewerId);
+      const note = await db.note.findFirst({
+        where: {
+          ...createViewerNoteWhere(viewerFilter),
+          status: NoteStatus.PUBLISHED,
+          OR: [{ id: noteIdOrSlug }, { slug: noteIdOrSlug }],
+        },
+        select: {
+          authorId: true,
+          id: true,
+          tags: {
+            include: {
+              tag: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!note) {
+        return [];
+      }
+
+      const tagNames = note.tags.map((item) => item.tag.name);
+      const relatedClauses: Prisma.NoteWhereInput[] = [
+        {
+          authorId: note.authorId,
+        },
+      ];
+
+      if (tagNames.length) {
+        relatedClauses.unshift({
+          tags: {
+            some: {
+              tag: {
+                name: {
+                  in: tagNames,
+                },
+              },
+            },
+          },
+        });
+      }
+
+      let candidates = await db.note.findMany({
+        where: {
+          ...createViewerNoteWhere(viewerFilter),
+          id: {
+            not: note.id,
+          },
+          status: NoteStatus.PUBLISHED,
+          OR: relatedClauses,
+        },
+        include: noteCardInclude,
+        orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+        take: Math.max(SIMILAR_NOTE_CANDIDATE_POOL_SIZE, limit * 4),
+      });
+
+      if (candidates.length < limit) {
+        const excludedIds = [note.id, ...candidates.map((candidate) => candidate.id)];
+        const recentCandidates = await db.note.findMany({
+          where: {
+            ...createViewerNoteWhere(viewerFilter),
+            id: {
+              notIn: excludedIds,
+            },
+            status: NoteStatus.PUBLISHED,
+          },
+          include: noteCardInclude,
+          orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+          take: limit - candidates.length,
+        });
+
+        candidates = [...candidates, ...recentCandidates];
+      }
+
+      return rankSimilarNoteCandidates({
+        authorId: note.authorId,
+        notes: candidates,
+        tagNames,
+      }).slice(0, limit);
+    },
+    () => {
+      const note = demoNotes.find((item) => item.id === noteIdOrSlug);
+
+      if (!note) {
+        return [];
+      }
+
+      const tagSet = new Set(note.tags.map((tag) => tag.toLowerCase()));
+
+      return demoNotes
+        .filter((item) => item.id !== note.id)
+        .map((item) => ({
+          data: {
+            ...toFixtureNoteCard(item),
+            recommendationReason: item.tags.some((tag) => tagSet.has(tag.toLowerCase()))
+              ? "相似标签"
+              : "近期热门",
+          },
+          score:
+            item.tags.filter((tag) => tagSet.has(tag.toLowerCase())).length * 100 +
+            item.score,
+        }))
+        .sort((left, right) => right.score - left.score)
+        .map((item) => item.data)
+        .slice(0, limit);
     },
   );
 }
