@@ -848,6 +848,130 @@ export async function moderateCommentReport({
   };
 }
 
+export async function moderateNoteStatus({
+  actor,
+  noteId,
+  resolution,
+  type,
+}: {
+  actor: CommunityActor;
+  noteId: string;
+  resolution?: string;
+  type: "archive" | "hide" | "restore";
+}): Promise<
+  CommunityServiceResult<{
+    note: PublishedNoteTarget & {
+      status: NoteStatus;
+    };
+  }>
+> {
+  // 管理员笔记治理只改变公开状态，不删除内容；每次状态流转都写审计日志，
+  // 便于后续接入举报、申诉和恢复流程时追踪操作来源。
+  if (!canModerate(actor)) {
+    return communityError("FORBIDDEN", "Admin permission is required.");
+  }
+
+  const note = await db.note.findUnique({
+    where: {
+      id: noteId,
+    },
+    select: {
+      author: {
+        select: {
+          handle: true,
+          name: true,
+        },
+      },
+      authorId: true,
+      id: true,
+      publishedAt: true,
+      slug: true,
+      status: true,
+      title: true,
+    },
+  });
+
+  if (!note) {
+    return communityError("NOT_FOUND", "Note was not found.");
+  }
+
+  let nextStatus: NoteStatus;
+  let auditAction: string;
+
+  if (type === "hide") {
+    nextStatus = NoteStatus.HIDDEN;
+    auditAction = "NOTE_HIDE";
+  } else if (type === "archive") {
+    nextStatus = NoteStatus.ARCHIVED;
+    auditAction = "NOTE_ARCHIVE";
+  } else {
+    nextStatus = NoteStatus.PUBLISHED;
+    auditAction = "NOTE_RESTORE";
+  }
+
+  if (note.status === nextStatus) {
+    return {
+      data: {
+        note: {
+          author: note.author,
+          authorId: note.authorId,
+          id: note.id,
+          slug: note.slug,
+          status: note.status,
+          title: note.title,
+        },
+      },
+      ok: true,
+    };
+  }
+
+  const trimmedResolution = resolution?.trim();
+  const updatedNote = await db.note.update({
+    where: {
+      id: note.id,
+    },
+    data: {
+      publishedAt:
+        nextStatus === NoteStatus.PUBLISHED ? (note.publishedAt ?? new Date()) : note.publishedAt,
+      status: nextStatus,
+    },
+    select: {
+      author: {
+        select: {
+          handle: true,
+          name: true,
+        },
+      },
+      authorId: true,
+      id: true,
+      slug: true,
+      status: true,
+      title: true,
+    },
+  });
+
+  await db.adminAuditLog.create({
+    data: {
+      action: auditAction,
+      actorId: actor.id,
+      entityId: note.id,
+      entityType: "NOTE",
+      metadata: {
+        fromStatus: note.status,
+        resolution: trimmedResolution ?? null,
+        toStatus: nextStatus,
+      },
+    },
+  });
+
+  return {
+    data: {
+      note: updatedNote,
+    },
+    ok: true,
+  };
+}
+
 export async function dismissNote({
   actor,
   noteIdOrSlug,

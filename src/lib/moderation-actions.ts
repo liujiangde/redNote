@@ -4,15 +4,15 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { AuthorizationError, requireAdminSession } from "@/lib/auth-boundary";
-import { moderateCommentReport } from "@/lib/community-service";
+import { moderateCommentReport, moderateNoteStatus } from "@/lib/community-service";
 import { invalidateFeedCandidateCache } from "@/lib/content-data";
 
-async function requireAdminOrRedirect() {
+async function requireAdminOrRedirect(callbackUrl = "/admin/reports") {
   try {
     return await requireAdminSession();
   } catch (error) {
     if (error instanceof AuthorizationError && error.status === 401) {
-      redirect("/login?callbackUrl=/admin/reports");
+      redirect(`/login?callbackUrl=${encodeURIComponent(callbackUrl)}`);
     }
 
     if (error instanceof AuthorizationError) {
@@ -32,6 +32,20 @@ function revalidateModerationPaths(reportId: string, note: { id: string; slug: s
     revalidatePath(`/notes/${note.id}`);
     revalidatePath(`/notes/${note.slug}`);
   }
+}
+
+function revalidateNoteModerationPaths(note: {
+  author: {
+    handle: string;
+  };
+  id: string;
+  slug: string;
+}) {
+  revalidatePath("/admin");
+  revalidatePath("/admin/notes");
+  revalidatePath(`/notes/${note.id}`);
+  revalidatePath(`/notes/${note.slug}`);
+  revalidatePath(`/users/${note.author.handle}`);
 }
 
 export async function markCommentReportReviewing(reportId: string) {
@@ -79,4 +93,51 @@ export async function hideReportedComment(reportId: string, formData: FormData) 
 
     revalidateModerationPaths(result.data.reportId, result.data.note);
   }
+}
+
+async function updateNoteModerationStatus({
+  noteId,
+  resolution,
+  type,
+}: {
+  noteId: string;
+  resolution: string;
+  type: "archive" | "hide" | "restore";
+}) {
+  const session = await requireAdminOrRedirect("/admin/notes");
+  const result = await moderateNoteStatus({
+    actor: session.user,
+    noteId,
+    resolution,
+    type,
+  });
+
+  if (result.ok) {
+    await invalidateFeedCandidateCache();
+    revalidateNoteModerationPaths(result.data.note);
+  }
+}
+
+export async function hideAdminNote(noteId: string) {
+  await updateNoteModerationStatus({
+    noteId,
+    resolution: "管理员隐藏笔记。",
+    type: "hide",
+  });
+}
+
+export async function archiveAdminNote(noteId: string) {
+  await updateNoteModerationStatus({
+    noteId,
+    resolution: "管理员归档笔记。",
+    type: "archive",
+  });
+}
+
+export async function restoreAdminNote(noteId: string) {
+  await updateNoteModerationStatus({
+    noteId,
+    resolution: "管理员恢复笔记公开状态。",
+    type: "restore",
+  });
 }
