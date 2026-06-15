@@ -16,6 +16,7 @@ RedNote Lite 是一个面向作品集和后续扩展的 C 端社区项目骨架�
 
 - [项目说明](./docs/PROJECT_GUIDE.md)：路由、目录、数据模型、本地服务和关键环境变量。
 - [后续开发计划](./docs/DEVELOPMENT_PLAN.md)：从当前骨架到可用社区产品的阶段拆分和验收标准。
+- [部署说明](./docs/DEPLOYMENT.md)：生产配置、migration、健康检查和上线 smoke test。
 
 ## Local Services
 
