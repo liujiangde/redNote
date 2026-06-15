@@ -246,6 +246,8 @@ node --input-type=module -e "import 'dotenv/config'; import pg from 'pg'; const 
 | `S3_BUCKET` | 上传 bucket | `rednote-dev` |
 | `OPENAI_API_KEY` | 真实 embedding 调用 | 无 |
 | `OPENAI_EMBEDDING_MODEL` | embedding 模型 | `text-embedding-3-small` |
+| `COMMENT_SENSITIVE_TERMS` | 评论敏感词词库，逗号分隔 | 内置基础词库 |
+| `NOTE_SENSITIVE_TERMS` | 笔记发布敏感词词库，逗号分隔 | 内置基础词库 |
 | `NEXTAUTH_SECRET` | NextAuth 会话签名 | 生产环境必须设置 |
 | `NEXTAUTH_URL` | NextAuth 回调 URL | 本地通常是 `http://localhost:3000` |
 
@@ -420,5 +422,6 @@ M4.2 搜索发现基础版：
 - 用户管理页支持 `SUPER_ADMIN` 封禁和解封账号；被封禁账号不能重新登录，旧 session 也会在认证边界被拒绝继续写入。
 - `/api/health` 会实际检查数据库、Redis 和对象存储 bucket，就绪失败时返回 degraded 状态。
 - 根级 `error.tsx` 和 `not-found.tsx` 已提供错误与 404 兜底页面。
+- 根级 `loading.tsx` 已提供跨页面加载兜底；生产环境会启用 Next Image optimizer，并从 `S3_ENDPOINT` 自动加入对象存储图片域名。
 
 后续治理增强仍包括敏感词后台运营、申诉流程、设备/IP 风险和核心 e2e。任何后台写操作都应继续同步写入 `AdminAuditLog`。
