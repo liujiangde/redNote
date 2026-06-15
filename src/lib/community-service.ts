@@ -6,6 +6,7 @@ import {
   NotificationType,
   ReportStatus,
   ReportTargetType,
+  UserRole,
 } from "@/generated/prisma/client";
 import { findSensitiveCommentTerms } from "@/lib/content-safety";
 import { db } from "@/lib/db";
@@ -84,6 +85,10 @@ function actorDisplayName(actor: CommunityActor) {
 
 function canModerate(actor: CommunityActor) {
   return actor.role === "ADMIN" || actor.role === "SUPER_ADMIN";
+}
+
+function canManageRoles(actor: CommunityActor) {
+  return actor.role === "SUPER_ADMIN";
 }
 
 async function getUserBlockState(actorId: string, targetUserId: string) {
@@ -967,6 +972,96 @@ export async function moderateNoteStatus({
   return {
     data: {
       note: updatedNote,
+    },
+    ok: true,
+  };
+}
+
+export async function updateUserRole({
+  actor,
+  role,
+  userId,
+}: {
+  actor: CommunityActor;
+  role: Extract<UserRole, "ADMIN" | "USER">;
+  userId: string;
+}): Promise<
+  CommunityServiceResult<{
+    user: {
+      handle: string;
+      id: string;
+      role: UserRole;
+    };
+  }>
+> {
+  // 角色变更比普通治理动作更敏感：只允许 SUPER_ADMIN 操作，且不能修改自己
+  // 或其他 SUPER_ADMIN，避免误操作导致后台权限不可恢复。
+  if (!canManageRoles(actor)) {
+    return communityError("FORBIDDEN", "Super admin permission is required.");
+  }
+
+  if (actor.id === userId) {
+    return communityError("VALIDATION_ERROR", "You cannot change your own role.");
+  }
+
+  const user = await db.user.findUnique({
+    where: {
+      id: userId,
+    },
+    select: {
+      handle: true,
+      id: true,
+      role: true,
+    },
+  });
+
+  if (!user) {
+    return communityError("NOT_FOUND", "User was not found.");
+  }
+
+  if (user.role === UserRole.SUPER_ADMIN) {
+    return communityError("FORBIDDEN", "Super admin role cannot be changed here.");
+  }
+
+  if (user.role === role) {
+    return {
+      data: {
+        user,
+      },
+      ok: true,
+    };
+  }
+
+  const updatedUser = await db.user.update({
+    where: {
+      id: user.id,
+    },
+    data: {
+      role,
+    },
+    select: {
+      handle: true,
+      id: true,
+      role: true,
+    },
+  });
+
+  await db.adminAuditLog.create({
+    data: {
+      action: "USER_ROLE_UPDATE",
+      actorId: actor.id,
+      entityId: user.id,
+      entityType: "USER",
+      metadata: {
+        fromRole: user.role,
+        toRole: role,
+      },
+    },
+  });
+
+  return {
+    data: {
+      user: updatedUser,
     },
     ok: true,
   };

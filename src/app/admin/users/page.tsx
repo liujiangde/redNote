@@ -1,8 +1,11 @@
+import { requireAdminSession } from "@/lib/auth-boundary";
 import { getAdminUsers } from "@/lib/content-data";
+
+import { UserRoleActions } from "./user-role-actions";
 
 export default async function AdminUsersPage() {
   // 用户管理页聚合账号角色、内容贡献和被举报数，供管理员识别治理风险。
-  const users = await getAdminUsers();
+  const [session, users] = await Promise.all([requireAdminSession(), getAdminUsers()]);
 
   return (
     <section className="space-y-5">
@@ -28,6 +31,14 @@ export default async function AdminUsersPage() {
               <span>{user.followerCount} 粉丝</span>
               <span>{user.followingCount} 关注</span>
               <span>{user.reportCount} 举报</span>
+            </div>
+            <div className="mt-4 border-t border-slate-100 pt-3">
+              <UserRoleActions
+                currentUserId={session.user.id}
+                currentUserRole={session.user.role}
+                userId={user.id}
+                userRole={user.role}
+              />
             </div>
           </article>
         ))}

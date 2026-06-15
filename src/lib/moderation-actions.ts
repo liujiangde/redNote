@@ -3,8 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
+import { UserRole } from "@/generated/prisma/client";
 import { AuthorizationError, requireAdminSession } from "@/lib/auth-boundary";
-import { moderateCommentReport, moderateNoteStatus } from "@/lib/community-service";
+import {
+  moderateCommentReport,
+  moderateNoteStatus,
+  updateUserRole,
+} from "@/lib/community-service";
 import { invalidateFeedCandidateCache } from "@/lib/content-data";
 
 async function requireAdminOrRedirect(callbackUrl = "/admin/reports") {
@@ -46,6 +51,12 @@ function revalidateNoteModerationPaths(note: {
   revalidatePath(`/notes/${note.id}`);
   revalidatePath(`/notes/${note.slug}`);
   revalidatePath(`/users/${note.author.handle}`);
+}
+
+function revalidateUserModerationPaths(user: { handle: string }) {
+  revalidatePath("/admin");
+  revalidatePath("/admin/users");
+  revalidatePath(`/users/${user.handle}`);
 }
 
 export async function markCommentReportReviewing(reportId: string) {
@@ -140,4 +151,25 @@ export async function restoreAdminNote(noteId: string) {
     resolution: "管理员恢复笔记公开状态。",
     type: "restore",
   });
+}
+
+async function updateAdminUserRole(userId: string, role: Extract<UserRole, "ADMIN" | "USER">) {
+  const session = await requireAdminOrRedirect("/admin/users");
+  const result = await updateUserRole({
+    actor: session.user,
+    role,
+    userId,
+  });
+
+  if (result.ok) {
+    revalidateUserModerationPaths(result.data.user);
+  }
+}
+
+export async function promoteAdminUser(userId: string) {
+  await updateAdminUserRole(userId, UserRole.ADMIN);
+}
+
+export async function demoteAdminUser(userId: string) {
+  await updateAdminUserRole(userId, UserRole.USER);
 }
