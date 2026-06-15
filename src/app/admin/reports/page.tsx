@@ -1,17 +1,40 @@
 import Link from "next/link";
 
-import { getAdminReports } from "@/lib/content-data";
 import { ReportModerationActions } from "@/app/admin/reports/report-moderation-actions";
+import { Button } from "@/components/ui/button";
+import { getAdminReports } from "@/lib/content-data";
+import { markCommentReportsReviewing } from "@/lib/moderation-actions";
 
 export default async function AdminReportsPage() {
   // 举报管理页先展示处理队列，后续详情页会承载状态流转、处理记录和申诉信息。
   const reports = await getAdminReports();
+  const reviewableCommentReportIds = reports
+    .filter(
+      (item) =>
+        item.targetType === "COMMENT" &&
+        item.commentId &&
+        item.status !== "RESOLVED" &&
+        item.status !== "REJECTED",
+    )
+    .map((item) => item.id);
 
   return (
     <section className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-950">举报管理</h1>
-        <p className="mt-1 text-sm text-slate-500">处理内容、评论和用户举报。</p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-950">举报管理</h1>
+          <p className="mt-1 text-sm text-slate-500">处理内容、评论和用户举报。</p>
+        </div>
+        {reviewableCommentReportIds.length > 0 && (
+          <form action={markCommentReportsReviewing}>
+            {reviewableCommentReportIds.map((reportId) => (
+              <input key={reportId} name="reportId" type="hidden" value={reportId} />
+            ))}
+            <Button type="submit" variant="secondary">
+              批量开始处理
+            </Button>
+          </form>
+        )}
       </div>
       <div className="grid gap-4 lg:grid-cols-3">
         {reports.map((item) => {

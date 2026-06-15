@@ -72,6 +72,31 @@ export async function markCommentReportReviewing(reportId: string) {
   }
 }
 
+export async function markCommentReportsReviewing(formData: FormData) {
+  const reportIds = Array.from(new Set(formData.getAll("reportId")))
+    .filter((reportId): reportId is string => typeof reportId === "string")
+    .filter(Boolean)
+    .slice(0, 50);
+
+  if (!reportIds.length) {
+    return;
+  }
+
+  const session = await requireAdminOrRedirect();
+
+  for (const reportId of reportIds) {
+    const result = await moderateCommentReport({
+      actor: session.user,
+      reportId,
+      type: "review",
+    });
+
+    if (result.ok) {
+      revalidateModerationPaths(result.data.reportId, result.data.note);
+    }
+  }
+}
+
 export async function rejectCommentReport(reportId: string, formData: FormData) {
   const session = await requireAdminOrRedirect();
   const resolution = formData.get("resolution");
