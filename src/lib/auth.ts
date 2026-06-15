@@ -3,6 +3,7 @@ import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { z } from "zod";
 
+import { UserStatus } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 
 const credentialsSchema = z.object({
@@ -48,6 +49,10 @@ export const authOptions: NextAuthOptions = {
         const isValidPassword = await compare(parsed.data.password, user.passwordHash);
 
         if (!isValidPassword) {
+          return null;
+        }
+
+        if (user.status === UserStatus.BANNED) {
           return null;
         }
 

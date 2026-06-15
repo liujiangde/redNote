@@ -362,6 +362,7 @@ export type AdminUserRow = {
   name: string;
   handle: string;
   role: string;
+  status: string;
   noteCount: number;
   followerCount: number;
   followingCount: number;
@@ -2928,6 +2929,7 @@ export async function getAdminUsers() {
         name: user.name,
         handle: user.handle,
         role: user.role,
+        status: user.status,
         noteCount: user._count.notes,
         followerCount: user._count.followers,
         followingCount: user._count.following,
@@ -2947,6 +2949,7 @@ export async function getAdminUsers() {
         name: user.name,
         handle: user.handle,
         role: "USER",
+        status: "ACTIVE",
         noteCount: demoNotes.filter((note) => note.author.handle === user.handle).length,
         followerCount: 0,
         followingCount: 0,

@@ -1,6 +1,8 @@
 import { getServerSession } from "next-auth";
 
+import { UserStatus } from "@/generated/prisma/client";
 import { authOptions } from "@/lib/auth";
+import { db } from "@/lib/db";
 
 export type AppRole = "USER" | "ADMIN" | "SUPER_ADMIN";
 
@@ -27,6 +29,19 @@ export async function requireUserSession() {
 
   if (!session?.user) {
     throw new AuthorizationError("Authentication is required.", 401);
+  }
+
+  const user = await db.user.findUnique({
+    where: {
+      id: session.user.id,
+    },
+    select: {
+      status: true,
+    },
+  });
+
+  if (!user || user.status === UserStatus.BANNED) {
+    throw new AuthorizationError("Account is not available.", 403);
   }
 
   return session;

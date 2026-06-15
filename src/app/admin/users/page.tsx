@@ -1,7 +1,9 @@
 import { requireAdminSession } from "@/lib/auth-boundary";
 import { getAdminUsers } from "@/lib/content-data";
+import { cn } from "@/lib/utils";
 
 import { UserRoleActions } from "./user-role-actions";
+import { UserStatusActions } from "./user-status-actions";
 
 export default async function AdminUsersPage() {
   // 用户管理页聚合账号角色、内容贡献和被举报数，供管理员识别治理风险。
@@ -19,8 +21,15 @@ export default async function AdminUsersPage() {
             <p className="font-semibold text-slate-950">{user.name}</p>
             <p className="mt-1 text-sm text-slate-500">@{user.handle}</p>
             <div className="mt-4 flex gap-2 text-xs">
-              <span className="rounded-full bg-emerald-50 px-2 py-1 font-semibold text-emerald-700">
-                ACTIVE
+              <span
+                className={cn(
+                  "rounded-full px-2 py-1 font-semibold",
+                  user.status === "BANNED"
+                    ? "bg-rose-50 text-rose-700"
+                    : "bg-emerald-50 text-emerald-700",
+                )}
+              >
+                {user.status}
               </span>
               <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-600">
                 {user.role}
@@ -39,6 +48,15 @@ export default async function AdminUsersPage() {
                 userId={user.id}
                 userRole={user.role}
               />
+              <div className="mt-2">
+                <UserStatusActions
+                  currentUserId={session.user.id}
+                  currentUserRole={session.user.role}
+                  userId={user.id}
+                  userRole={user.role}
+                  userStatus={user.status}
+                />
+              </div>
             </div>
           </article>
         ))}

@@ -13,6 +13,11 @@ enum UserRole {
   SUPER_ADMIN
 }
 
+enum UserStatus {
+  ACTIVE
+  BANNED
+}
+
 enum NoteStatus {
   DRAFT
   PUBLISHED
@@ -58,6 +63,7 @@ model User {
   bio                    String?         @db.VarChar(280)
   avatarUrl              String?         @map("avatar_url")
   role                   UserRole        @default(USER)
+  status                 UserStatus      @default(ACTIVE)
   notes                  Note[]
   comments               Comment[]
   likes                  Like[]
@@ -76,6 +82,7 @@ model User {
   updatedAt              DateTime        @updatedAt @map("updated_at")
 
   @@index([role])
+  @@index([status])
   @@map("users")
 }
 

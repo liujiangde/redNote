@@ -3,12 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { UserRole } from "@/generated/prisma/client";
+import { UserRole, UserStatus } from "@/generated/prisma/client";
 import { AuthorizationError, requireAdminSession } from "@/lib/auth-boundary";
 import {
   moderateCommentReport,
   moderateNoteStatus,
   updateUserRole,
+  updateUserStatus,
 } from "@/lib/community-service";
 import { invalidateFeedCandidateCache } from "@/lib/content-data";
 
@@ -197,4 +198,28 @@ export async function promoteAdminUser(userId: string) {
 
 export async function demoteAdminUser(userId: string) {
   await updateAdminUserRole(userId, UserRole.USER);
+}
+
+async function updateAdminUserStatus(
+  userId: string,
+  status: Extract<UserStatus, "ACTIVE" | "BANNED">,
+) {
+  const session = await requireAdminOrRedirect("/admin/users");
+  const result = await updateUserStatus({
+    actor: session.user,
+    status,
+    userId,
+  });
+
+  if (result.ok) {
+    revalidateUserModerationPaths(result.data.user);
+  }
+}
+
+export async function banAdminUser(userId: string) {
+  await updateAdminUserStatus(userId, UserStatus.BANNED);
+}
+
+export async function unbanAdminUser(userId: string) {
+  await updateAdminUserStatus(userId, UserStatus.ACTIVE);
 }

@@ -7,6 +7,7 @@ import {
   ReportStatus,
   ReportTargetType,
   UserRole,
+  UserStatus,
 } from "@/generated/prisma/client";
 import { findSensitiveCommentTerms } from "@/lib/content-safety";
 import { db } from "@/lib/db";
@@ -1055,6 +1056,97 @@ export async function updateUserRole({
       metadata: {
         fromRole: user.role,
         toRole: role,
+      },
+    },
+  });
+
+  return {
+    data: {
+      user: updatedUser,
+    },
+    ok: true,
+  };
+}
+
+export async function updateUserStatus({
+  actor,
+  status,
+  userId,
+}: {
+  actor: CommunityActor;
+  status: Extract<UserStatus, "ACTIVE" | "BANNED">;
+  userId: string;
+}): Promise<
+  CommunityServiceResult<{
+    user: {
+      handle: string;
+      id: string;
+      status: UserStatus;
+    };
+  }>
+> {
+  // 封禁会直接阻断登录和主要写入口，先限制为 SUPER_ADMIN 操作。
+  // 普通管理员封禁、申诉和处罚时长后续再接入更完整的风控流程。
+  if (!canManageRoles(actor)) {
+    return communityError("FORBIDDEN", "Super admin permission is required.");
+  }
+
+  if (actor.id === userId) {
+    return communityError("VALIDATION_ERROR", "You cannot change your own account status.");
+  }
+
+  const user = await db.user.findUnique({
+    where: {
+      id: userId,
+    },
+    select: {
+      handle: true,
+      id: true,
+      role: true,
+      status: true,
+    },
+  });
+
+  if (!user) {
+    return communityError("NOT_FOUND", "User was not found.");
+  }
+
+  if (user.role === UserRole.SUPER_ADMIN) {
+    return communityError("FORBIDDEN", "Super admin account cannot be banned here.");
+  }
+
+  if (user.status === status) {
+    return {
+      data: {
+        user,
+      },
+      ok: true,
+    };
+  }
+
+  const updatedUser = await db.user.update({
+    where: {
+      id: user.id,
+    },
+    data: {
+      status,
+    },
+    select: {
+      handle: true,
+      id: true,
+      status: true,
+    },
+  });
+
+  await db.adminAuditLog.create({
+    data: {
+      action: "USER_STATUS_UPDATE",
+      actorId: actor.id,
+      entityId: user.id,
+      entityType: "USER",
+      metadata: {
+        fromStatus: user.status,
+        toStatus: status,
       },
     },
   });
