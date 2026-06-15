@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   findSensitiveCommentTerms,
   findSensitiveNoteTerms,
+  getSensitiveContentDictionary,
   hasSensitiveNoteTerms,
 } from "./content-safety";
 
@@ -51,6 +52,17 @@ test("findSensitiveNoteTerms uses the note-specific configured dictionary", () =
   );
 
   assert.deepEqual(terms, ["站外交易"]);
+});
+
+test("getSensitiveContentDictionary exposes configured dictionary source", () => {
+  const dictionary = withEnv({ COMMENT_SENSITIVE_TERMS: "广告,导流" }, () =>
+    getSensitiveContentDictionary("comment"),
+  );
+
+  assert.deepEqual(dictionary, {
+    source: "env",
+    terms: ["广告", "导流"],
+  });
 });
 
 test("hasSensitiveNoteTerms falls back to default terms when no note dictionary is configured", () => {

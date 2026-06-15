@@ -1,11 +1,12 @@
 import Link from "next/link";
-import { BarChart3, Flag, NotebookText, Users } from "lucide-react";
+import { BarChart3, Flag, NotebookText, ShieldCheck, Users } from "lucide-react";
 
 const adminLinks = [
   { href: "/admin", label: "数据看板", icon: BarChart3 },
   { href: "/admin/notes", label: "笔记管理", icon: NotebookText },
   { href: "/admin/reports", label: "举报管理", icon: Flag },
   { href: "/admin/users", label: "用户管理", icon: Users },
+  { href: "/admin/safety", label: "内容安全", icon: ShieldCheck },
 ];
 
 export function AdminShell({
@@ -40,4 +41,3 @@ export function AdminShell({
     </div>
   );
 }
-

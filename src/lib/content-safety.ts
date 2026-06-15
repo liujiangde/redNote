@@ -30,11 +30,25 @@ function parseConfiguredTerms(value: string | undefined) {
 function getConfiguredSensitiveTerms(scope: SensitiveContentScope) {
   // 生产环境可以通过 COMMENT_SENSITIVE_TERMS / NOTE_SENSITIVE_TERMS 覆盖不同场景词库，
   // 格式为逗号分隔。默认词库让本地和 CI 不依赖外部配置也有基础内容安全能力。
+  return getSensitiveContentDictionary(scope).terms;
+}
+
+export function getSensitiveContentDictionary(scope: SensitiveContentScope) {
   const configuredTerms = parseConfiguredTerms(
     scope === "comment" ? process.env.COMMENT_SENSITIVE_TERMS : process.env.NOTE_SENSITIVE_TERMS,
   );
 
-  return configuredTerms?.length ? configuredTerms : DEFAULT_SENSITIVE_TERMS;
+  if (configuredTerms?.length) {
+    return {
+      source: "env",
+      terms: configuredTerms,
+    } as const;
+  }
+
+  return {
+    source: "default",
+    terms: DEFAULT_SENSITIVE_TERMS,
+  } as const;
 }
 
 export function findSensitiveContentTerms(content: string, scope: SensitiveContentScope) {
