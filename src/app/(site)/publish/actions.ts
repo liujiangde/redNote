@@ -9,6 +9,7 @@ import { z } from "zod";
 import { NoteStatus } from "@/generated/prisma/client";
 import { requireUserSession } from "@/lib/auth-boundary";
 import { createEmbedding } from "@/lib/ai/embeddings";
+import { findSensitiveNoteTerms } from "@/lib/content-safety";
 import { invalidateFeedCandidateCache } from "@/lib/content-data";
 import { db } from "@/lib/db";
 import { formatPgVector } from "@/lib/vector";
@@ -79,6 +80,21 @@ export async function publishNote(
   }
 
   const tags = parseTags(parsed.data.tags);
+  const sensitiveTerms = findSensitiveNoteTerms({
+    content: parsed.data.content,
+    tags: tags.join(","),
+    title: parsed.data.title,
+  });
+
+  if (sensitiveTerms.length) {
+    return {
+      message: "笔记内容包含敏感信息，请修改后再提交。",
+      errors: {
+        content: ["笔记内容包含敏感信息，请修改后再提交。"],
+      },
+    };
+  }
+
   const status = parsed.data.intent === "publish" ? NoteStatus.PUBLISHED : NoteStatus.DRAFT;
   const slug = `${slugify(parsed.data.title)}-${randomUUID().slice(0, 8)}`;
   const sourceText = `${parsed.data.title}\n${parsed.data.content}`;
