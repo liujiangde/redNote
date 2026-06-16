@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  analyzeSensitiveContentLines,
   findSensitiveCommentTerms,
   findSensitiveNoteTerms,
   getSensitiveContentDictionary,
@@ -63,6 +64,30 @@ test("getSensitiveContentDictionary exposes configured dictionary source", () =>
     source: "env",
     terms: ["广告", "导流"],
   });
+});
+
+test("analyzeSensitiveContentLines returns per-line matches", () => {
+  const results = withEnv({ COMMENT_SENSITIVE_TERMS: "广告,导流" }, () =>
+    analyzeSensitiveContentLines("第一条正常\n第二条包含导流\n\n第三条广告", "comment"),
+  );
+
+  assert.deepEqual(results, [
+    {
+      lineNumber: 1,
+      terms: [],
+      text: "第一条正常",
+    },
+    {
+      lineNumber: 2,
+      terms: ["导流"],
+      text: "第二条包含导流",
+    },
+    {
+      lineNumber: 4,
+      terms: ["广告"],
+      text: "第三条广告",
+    },
+  ]);
 });
 
 test("hasSensitiveNoteTerms falls back to default terms when no note dictionary is configured", () => {

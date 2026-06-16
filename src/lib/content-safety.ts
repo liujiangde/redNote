@@ -1,5 +1,11 @@
 export type SensitiveContentScope = "comment" | "note";
 
+export type SensitiveContentLineResult = {
+  lineNumber: number;
+  terms: string[];
+  text: string;
+};
+
 const DEFAULT_SENSITIVE_TERMS = [
   "博彩",
   "赌博",
@@ -62,6 +68,20 @@ export function findSensitiveContentTerms(content: string, scope: SensitiveConte
 
     return normalizedTerm.length > 0 && normalizedContent.includes(normalizedTerm);
   });
+}
+
+export function analyzeSensitiveContentLines(content: string, scope: SensitiveContentScope) {
+  return content
+    .split(/\r?\n/)
+    .map((line, index) => ({
+      lineNumber: index + 1,
+      text: line.trim(),
+    }))
+    .filter((line) => line.text.length > 0)
+    .map((line): SensitiveContentLineResult => ({
+      ...line,
+      terms: findSensitiveContentTerms(line.text, scope),
+    }));
 }
 
 export function findSensitiveCommentTerms(content: string) {

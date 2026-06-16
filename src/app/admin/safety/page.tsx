@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import {
+  analyzeSensitiveContentLines,
   findSensitiveContentTerms,
   getSensitiveContentDictionary,
   type SensitiveContentScope,
@@ -45,6 +46,8 @@ export default async function AdminSafetyPage({
   const scope = normalizeScope(params.scope);
   const text = params.text?.trim() ?? "";
   const matches = text ? findSensitiveContentTerms(text, scope) : [];
+  const lineResults = text ? analyzeSensitiveContentLines(text, scope) : [];
+  const matchedLineCount = lineResults.filter((line) => line.terms.length > 0).length;
 
   return (
     <section className="space-y-5">
@@ -91,7 +94,7 @@ export default async function AdminSafetyPage({
         </form>
 
         {text && (
-          <div className="mt-5 rounded-lg bg-slate-50 p-4">
+          <div className="mt-5 space-y-4 rounded-lg bg-slate-50 p-4">
             <p className="text-sm font-semibold text-slate-800">
               {matches.length ? `命中 ${matches.length} 个词` : "未命中敏感词"}
             </p>
@@ -107,6 +110,36 @@ export default async function AdminSafetyPage({
                 ))}
               </div>
             )}
+            <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
+                <h3 className="text-sm font-semibold text-slate-800">逐行结果</h3>
+                <span className="text-xs text-slate-500">
+                  检测 {lineResults.length} 行，命中 {matchedLineCount} 行
+                </span>
+              </div>
+              <div className="divide-y divide-slate-100">
+                {lineResults.map((line) => (
+                  <div className="grid gap-3 px-4 py-3 text-sm md:grid-cols-[72px_1fr_180px]" key={line.lineNumber}>
+                    <span className="text-xs font-semibold text-slate-400">第 {line.lineNumber} 行</span>
+                    <p className="break-words text-slate-700">{line.text}</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {line.terms.length ? (
+                        line.terms.map((term) => (
+                          <span
+                            className="rounded-full bg-rose-50 px-2 py-0.5 text-xs font-semibold text-rose-700"
+                            key={term}
+                          >
+                            {term}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-xs text-slate-400">未命中</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         )}
       </section>
