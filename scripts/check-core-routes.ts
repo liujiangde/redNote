@@ -26,6 +26,18 @@ async function expectsLoginRedirect(response: Response) {
   return body.includes("__next-page-redirect") && body.includes("/login");
 }
 
+function expectsRedirectTo(path: string) {
+  return (response: Response) => {
+    const location = response.headers.get("location");
+
+    return (
+      response.status >= 300 &&
+      response.status < 400 &&
+      Boolean(location?.includes(path))
+    );
+  };
+}
+
 const routes: SmokeRoute[] = [
   {
     name: "home",
@@ -51,6 +63,12 @@ const routes: SmokeRoute[] = [
     name: "health",
     path: "/api/health",
     expect: (response) => response.ok,
+  },
+  {
+    name: "search click redirect",
+    path: "/api/v1/search/click?q=%E5%92%96%E5%95%A1&noteId=smoke-note",
+    redirect: "manual",
+    expect: expectsRedirectTo("/notes/smoke-note"),
   },
   {
     name: "admin auth redirect",
