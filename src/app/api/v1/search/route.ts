@@ -8,7 +8,11 @@ import {
   parseCursorPagination,
 } from "@/lib/api-contract";
 import { getApiSession } from "@/lib/api-session";
-import { recordSearchQuery, searchPublishedNotes } from "@/lib/content-data";
+import {
+  recordSearchQuery,
+  recordSearchResultExposure,
+  searchPublishedNotes,
+} from "@/lib/content-data";
 
 export const dynamic = "force-dynamic";
 
@@ -34,11 +38,12 @@ export async function GET(request: NextRequest) {
     limit: pagination.value.limit + 1,
     viewerId: session?.user.id,
   });
+  const page = createCursorPage(notes, {
+    limit: pagination.value.limit,
+    getCursor: (note) => note.id,
+  });
 
-  return apiSuccess(
-    createCursorPage(notes, {
-      limit: pagination.value.limit,
-      getCursor: (note) => note.id,
-    }),
-  );
+  await recordSearchResultExposure(query, page.items.map((note) => note.id));
+
+  return apiSuccess(page);
 }

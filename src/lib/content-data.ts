@@ -48,6 +48,8 @@ const FEED_CANDIDATE_CACHE_KEY = "rednote:feed:candidates:v1";
 const SEARCH_HOT_KEY = "rednote:search:hot:v1";
 const SEARCH_CLICK_KEY = "rednote:search:clicks:v1";
 const SEARCH_CLICK_DETAIL_KEY = "rednote:search:clicks:details:v1";
+const SEARCH_EXPOSURE_KEY = "rednote:search:exposures:v1";
+const SEARCH_EXPOSURE_DETAIL_KEY = "rednote:search:exposures:details:v1";
 const SEARCH_TOPIC_CACHE_KEY = "rednote:search:topics:v1";
 
 let databaseReachability:
@@ -521,6 +523,7 @@ type SemanticSearchRow = {
 
 type SearchAnalyticsSummary = {
   clickCount: number;
+  exposureCount: number;
   hotTermCount: number;
   searchCount: number;
 };
@@ -1143,13 +1146,15 @@ async function readSearchAnalyticsSummary(): Promise<SearchAnalyticsSummary | nu
   }
 
   try {
-    const [searchItems, clickItems] = await Promise.all([
+    const [searchItems, clickItems, exposureItems] = await Promise.all([
       client.zRangeWithScores(SEARCH_HOT_KEY, 0, -1),
       client.zRangeWithScores(SEARCH_CLICK_KEY, 0, -1),
+      client.zRangeWithScores(SEARCH_EXPOSURE_KEY, 0, -1),
     ]);
 
     return {
       clickCount: sumRedisScores(clickItems),
+      exposureCount: sumRedisScores(exposureItems),
       hotTermCount: searchItems.length,
       searchCount: sumRedisScores(searchItems),
     };
@@ -2039,6 +2044,39 @@ export async function recordSearchResultClick(query: string | undefined, noteId:
   }
 }
 
+export async function recordSearchResultExposure(
+  query: string | undefined,
+  noteIds: string[],
+) {
+  const keyword = normalizeSearchQuery(query);
+  const normalizedNoteIds = Array.from(
+    new Set(noteIds.map((noteId) => noteId.trim().slice(0, 96)).filter(Boolean)),
+  );
+
+  if (keyword.length < 2 || !normalizedNoteIds.length) {
+    return;
+  }
+
+  const client = await getOptionalRedisClient();
+
+  if (!client) {
+    return;
+  }
+
+  try {
+    await client.zIncrBy(SEARCH_EXPOSURE_KEY, normalizedNoteIds.length, keyword);
+    await Promise.all(
+      normalizedNoteIds.map((noteId) =>
+        client.zIncrBy(SEARCH_EXPOSURE_DETAIL_KEY, 1, `${keyword}\t${noteId}`),
+      ),
+    );
+    await client.expire(SEARCH_EXPOSURE_KEY, SEARCH_REDIS_TTL_SECONDS);
+    await client.expire(SEARCH_EXPOSURE_DETAIL_KEY, SEARCH_REDIS_TTL_SECONDS);
+  } catch {
+    // 曝光日志失败不能阻断搜索结果展示。
+  }
+}
+
 export async function getSearchDiscovery(
   options: { limit?: number; query?: string; viewerId?: string } = {},
 ) {
@@ -2657,8 +2695,8 @@ export async function getAdminMetrics() {
       ]);
 
       const interactionCount = likeCount + favoriteCount + commentCount;
-      const searchCount = searchAnalytics?.searchCount ?? 0;
       const clickCount = searchAnalytics?.clickCount ?? 0;
+      const exposureCount = searchAnalytics?.exposureCount ?? 0;
       const redisDelta = searchAnalytics === null ? "Redis 未连接" : "Redis";
 
       return [
@@ -2673,11 +2711,11 @@ export async function getAdminMetrics() {
         },
         {
           label: "搜索点击率",
-          value: formatPercentage(clickCount, searchCount),
+          value: formatPercentage(clickCount, exposureCount),
           delta:
             searchAnalytics === null
               ? redisDelta
-              : `${formatInteger(clickCount)} / ${formatInteger(searchCount)}`,
+              : `${formatInteger(clickCount)} / ${formatInteger(exposureCount)}`,
         },
       ] satisfies AdminMetric[];
     },

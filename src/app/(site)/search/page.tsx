@@ -3,7 +3,12 @@ import { Clock3, Flame, Layers3, Lightbulb, Search } from "lucide-react";
 
 import { NoteCard } from "@/components/note-card";
 import { getCurrentSession } from "@/lib/auth-boundary";
-import { getSearchDiscovery, recordSearchQuery, searchPublishedNotes } from "@/lib/content-data";
+import {
+  getSearchDiscovery,
+  recordSearchQuery,
+  recordSearchResultExposure,
+  searchPublishedNotes,
+} from "@/lib/content-data";
 
 function createSearchResultHref(query: string | undefined, noteId: string) {
   const keyword = query?.trim();
@@ -39,6 +44,7 @@ export default async function SearchPage({
       viewerId: session?.user.id,
     }),
   ]);
+  await recordSearchResultExposure(q, notes.map((note) => note.id));
 
   return (
     <section className="space-y-6">
