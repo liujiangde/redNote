@@ -428,9 +428,10 @@ M4.2 搜索发现基础版：
 
 - `recordSearchQuery` 把有效搜索词写入 Redis 热搜 zset；登录用户额外写入个人历史 list。Redis 不可用时直接跳过，不影响搜索结果。
 - `/api/v1/search/click` 记录搜索结果点击到 Redis zset 后跳转到笔记详情，搜索页结果卡片在有查询词时会走这个入口；Redis 不可用时仍正常跳转。
+- Web 搜索页和 `/api/v1/search` 会把当前页可见结果写入 Redis 曝光 zset；Redis 不可用或写入失败时不阻断页面/API 返回。
 - `getSearchDiscovery` 统一生成搜索建议、热搜、个人历史和分类统计；Web 搜索页和 `/api/v1/search/discovery` 共用同一套读模型。
 - 搜索建议来自标签、用户和已发布笔记；分类统计先按笔记、话题、用户三类返回计数和样例。
-- 后台数据看板读取 Redis 热搜和点击 zset，展示搜索热词数和基础搜索点击率；真正的搜索转化率仍需要后续曝光口径和结果页行为聚合。
+- 后台数据看板读取 Redis 热搜、曝光和点击 zset，展示搜索热词数和基础搜索点击率；更完整的搜索转化仍需要后续结果页行为聚合。
 - 趋势话题读取会尝试使用 Redis JSON 缓存，未命中时回源 Prisma 查询；本地数据库不可达时继续使用 fixture。
 - `src/lib/cache.ts` 现在提供共享 Redis 连接 helper，互动限流、搜索热词和后续推荐候选缓存都应复用它。
 
