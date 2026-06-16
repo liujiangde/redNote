@@ -323,6 +323,11 @@ export type AdminReportAuditLog = {
   createdAt: string;
 };
 
+export type AdminAuditLogRow = AdminReportAuditLog & {
+  entityId: string;
+  entityType: string;
+};
+
 export type AdminReportDetail = AdminReportRow & {
   auditLogs: AdminReportAuditLog[];
   comment: {
@@ -2899,6 +2904,41 @@ export async function getAdminReportDetail(reportId: string): Promise<AdminRepor
         updatedAt: "示例数据",
       };
     },
+  );
+}
+
+export async function getAdminAuditLogs(limit = 80) {
+  await connection();
+
+  return withDatabaseFallback<AdminAuditLogRow[]>(
+    async () => {
+      const logs = await db.adminAuditLog.findMany({
+        include: {
+          actor: {
+            select: {
+              handle: true,
+              name: true,
+            },
+          },
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+        take: limit,
+      });
+
+      return logs.map((log): AdminAuditLogRow => ({
+        action: log.action,
+        actorHandle: log.actor?.handle ?? "system",
+        actorName: log.actor?.name ?? "System",
+        createdAt: formatDate(log.createdAt),
+        entityId: log.entityId,
+        entityType: log.entityType,
+        id: log.id,
+        metadata: stringifyAuditMetadata(log.metadata),
+      }));
+    },
+    () => [],
   );
 }
 
