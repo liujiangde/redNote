@@ -41,6 +41,15 @@ const routes: SmokeRoute[] = [
       response.status < 400 &&
       Boolean(response.headers.get("location")?.includes("/login")),
   },
+  {
+    name: "admin audit auth redirect",
+    path: "/admin/audit",
+    redirect: "manual",
+    expect: (response) =>
+      response.status >= 300 &&
+      response.status < 400 &&
+      Boolean(response.headers.get("location")?.includes("/login")),
+  },
 ];
 
 function getBaseUrl(args: string[]) {
