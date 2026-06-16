@@ -64,6 +64,12 @@ const routes: SmokeRoute[] = [
     redirect: "manual",
     expect: expectsLoginRedirect,
   },
+  {
+    name: "admin safety auth redirect",
+    path: "/admin/safety",
+    redirect: "manual",
+    expect: expectsLoginRedirect,
+  },
 ];
 
 function getBaseUrl(args: string[]) {
