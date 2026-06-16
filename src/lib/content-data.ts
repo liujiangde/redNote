@@ -2674,7 +2674,10 @@ export async function getAdminMetrics() {
         {
           label: "搜索点击率",
           value: formatPercentage(clickCount, searchCount),
-          delta: `${formatInteger(clickCount)} / ${formatInteger(searchCount)}`,
+          delta:
+            searchAnalytics === null
+              ? redisDelta
+              : `${formatInteger(clickCount)} / ${formatInteger(searchCount)}`,
         },
       ] satisfies AdminMetric[];
     },
