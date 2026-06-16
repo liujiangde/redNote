@@ -16,7 +16,7 @@ export default async function AdminDashboardPage() {
         <h1 className="text-2xl font-bold text-slate-950">数据看板</h1>
         <p className="mt-1 text-sm text-slate-500">用户增长、内容生产和治理状态总览。</p>
       </div>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-5">
         {adminMetrics.map((metric) => (
           <MetricCard key={metric.label} {...metric} />
         ))}

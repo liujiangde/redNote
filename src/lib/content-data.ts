@@ -1113,6 +1113,20 @@ async function readHotSearches(limit: number) {
   );
 }
 
+async function readHotSearchTermCount() {
+  const client = await getOptionalRedisClient();
+
+  if (!client) {
+    return null;
+  }
+
+  try {
+    return await client.zCard(SEARCH_HOT_KEY);
+  } catch {
+    return null;
+  }
+}
+
 async function getSearchSuggestionsFromDatabase({
   keyword,
   limit,
@@ -2554,8 +2568,15 @@ export async function getAdminMetrics() {
     async () => {
       // 后台看板读取实时 count，适合 MVP 和小规模试用。数据量变大后应改为
       // 定时聚合或缓存，避免管理员每次打开页面触发多次全局统计。
-      const [userCount, publishedNoteCount, openReportCount, likeCount, favoriteCount, commentCount] =
-        await Promise.all([
+      const [
+        userCount,
+        publishedNoteCount,
+        openReportCount,
+        likeCount,
+        favoriteCount,
+        commentCount,
+        hotSearchTermCount,
+      ] = await Promise.all([
           db.user.count(),
           db.note.count({ where: { status: NoteStatus.PUBLISHED } }),
           db.report.count({
@@ -2572,6 +2593,7 @@ export async function getAdminMetrics() {
               status: CommentStatus.VISIBLE,
             },
           }),
+          readHotSearchTermCount(),
         ]);
 
       const interactionCount = likeCount + favoriteCount + commentCount;
@@ -2581,6 +2603,11 @@ export async function getAdminMetrics() {
         { label: "已发布笔记", value: formatInteger(publishedNoteCount), delta: "实时" },
         { label: "待审举报", value: formatInteger(openReportCount), delta: "实时" },
         { label: "互动总数", value: formatInteger(interactionCount), delta: "实时" },
+        {
+          label: "搜索热词",
+          value: hotSearchTermCount === null ? "0" : formatInteger(hotSearchTermCount),
+          delta: hotSearchTermCount === null ? "Redis 未连接" : "Redis",
+        },
       ] satisfies AdminMetric[];
     },
     () => fixtureAdminMetrics,
