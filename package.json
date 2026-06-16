@@ -16,6 +16,7 @@
     "env:check": "tsx scripts/check-env.ts",
     "env:check:production": "tsx scripts/check-env.ts --mode production",
     "smoke:routes": "tsx scripts/check-core-routes.ts",
+    "baseline:routes": "tsx scripts/measure-route-baseline.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "prisma generate && prisma db seed",
