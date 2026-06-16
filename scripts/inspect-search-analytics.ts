@@ -48,6 +48,7 @@ function toScoreMap(items: ScoredItem[]) {
 async function run() {
   const args = process.argv.slice(2);
   const top = getPositiveIntegerArg(args, "--top", 8);
+  const asJson = args.includes("--json");
   const client = createClient({
     url: process.env.REDIS_URL ?? "redis://localhost:6379",
   });
@@ -69,6 +70,41 @@ async function run() {
     const searchCount = sumScores(searchItems);
     const clickCount = sumScores(clickItems);
     const exposureCount = sumScores(exposureItems);
+    const rows = searchItems
+      .sort((left, right) => right.score - left.score)
+      .slice(0, top)
+      .map((item) => {
+        const exposures = exposureScores.get(item.value) ?? 0;
+        const clicks = clickScores.get(item.value) ?? 0;
+
+        return {
+          clicks,
+          ctr: formatPercentage(clicks, exposures),
+          exposures,
+          query: item.value,
+          searches: item.score,
+        };
+      });
+
+    if (asJson) {
+      console.log(
+        JSON.stringify(
+          {
+            queries: rows,
+            totals: {
+              clicks: clickCount,
+              ctr: formatPercentage(clickCount, exposureCount),
+              exposures: exposureCount,
+              searches: searchCount,
+            },
+          },
+          null,
+          2,
+        ),
+      );
+
+      return;
+    }
 
     console.log("Search analytics");
     console.log(`searches: ${formatInteger(searchCount)}`);
@@ -79,17 +115,14 @@ async function run() {
     console.log("query | searches | exposures | clicks | ctr");
     console.log("--- | ---: | ---: | ---: | ---:");
 
-    for (const item of searchItems.sort((left, right) => right.score - left.score).slice(0, top)) {
-      const exposures = exposureScores.get(item.value) ?? 0;
-      const clicks = clickScores.get(item.value) ?? 0;
-
+    for (const row of rows) {
       console.log(
         [
-          item.value,
-          formatInteger(item.score),
-          formatInteger(exposures),
-          formatInteger(clicks),
-          formatPercentage(clicks, exposures),
+          row.query.replace(/\|/g, "\\|"),
+          formatInteger(row.searches),
+          formatInteger(row.exposures),
+          formatInteger(row.clicks),
+          row.ctr,
         ].join(" | "),
       );
     }
