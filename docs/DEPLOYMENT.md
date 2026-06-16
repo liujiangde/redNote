@@ -49,6 +49,14 @@ curl -f https://<host>/api/health
 
 `pnpm smoke:routes` 会检查首页、搜索、登录、注册、健康检查和后台登录跳转。脚本默认使用 `http://localhost:3000`，生产或预发环境需要通过 `--base-url` 指向目标域名。
 
+记录第一版容量基线：
+
+```bash
+pnpm baseline:routes -- --base-url https://<host> --requests 30 --concurrency 3
+```
+
+`pnpm baseline:routes` 会输出每个核心路由的 RPS、平均耗时、P50、P95、P99、最大耗时和错误率。这个脚本用于轻量回归和容量起点记录；正式压测仍需要在隔离环境中扩大请求量，并结合数据库连接数、慢查询、Redis 状态和应用日志一起判断瓶颈。
+
 继续人工验证：
 
 - 打开首页、搜索页、通知页和后台首页。

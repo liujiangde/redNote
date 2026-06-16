@@ -77,6 +77,7 @@ M1.5 基础版已经落地：
 - `docker-compose.yml`、`pnpm services:up`：PostgreSQL + pgvector、Redis、MinIO 一组命令启动。
 - `scripts/check-migrations.ts`、`pnpm migration:check`：pgvector 相关破坏性 migration 审查。
 - `scripts/check-core-routes.ts`、`pnpm smoke:routes`：核心页面、健康检查和后台登录跳转 smoke test。
+- `scripts/measure-route-baseline.ts`、`pnpm baseline:routes`：记录核心路由 RPS、P95/P99 和错误率。
 - `.github/workflows/ci.yml`：GitHub Actions 运行 migration check、环境变量检查、lint、单元测试和 typecheck。
 
 ## 并发和容量策略
@@ -96,6 +97,7 @@ M1.5 基础版已经落地：
 
 - Redis 大规模缓存策略、PgBouncer、读写分离、队列系统、CDN 优化、分布式部署、A/B 实验和必要时的分库分表。
 - 生产压测和容量评估应使用 `pnpm build && pnpm start` 的生产构建，而不是 `pnpm dev`。
+- 第一版容量基线可先用 `pnpm baseline:routes` 记录核心公开路由的 RPS、P95/P99 和错误率。
 - 容量优化要基于 RPS、P95/P99、错误率、数据库连接数、慢查询、缓存命中率和队列积压数据推进。
 
 ## 路由结构
@@ -239,6 +241,14 @@ pnpm smoke:routes -- --base-url http://localhost:3000
 ```
 
 脚本会检查首页、搜索、登录、注册、`/api/health` 和未登录访问 `/admin` 的登录跳转。未传 `--base-url` 时默认检查 `http://localhost:3000`。
+
+第一版容量基线：
+
+```bash
+pnpm baseline:routes -- --base-url http://localhost:3000 --requests 30 --concurrency 3
+```
+
+脚本会对核心路由输出 RPS、平均耗时、P50、P95、P99、最大耗时和错误率。做正式容量评估时，先使用 `pnpm build && pnpm start` 启动生产构建，再逐步提高 `--requests` 和 `--concurrency`，同时观察数据库、Redis 和应用日志。
 
 ## 关键环境变量
 
