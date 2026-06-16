@@ -90,10 +90,11 @@ export const topicTrends = [
 ];
 
 export const adminMetrics = [
-  { label: "新增用户", value: "1,248", delta: "+12.4%" },
-  { label: "新增笔记", value: "486", delta: "+8.2%" },
-  { label: "待审举报", value: "23", delta: "-6.1%" },
-  { label: "搜索转化", value: "38.7%", delta: "+3.5%" },
+  { label: "用户总数", value: "1,248", delta: "fixture" },
+  { label: "已发布笔记", value: "486", delta: "fixture" },
+  { label: "待审举报", value: "23", delta: "fixture" },
+  { label: "互动总数", value: "18,742", delta: "fixture" },
+  { label: "搜索热词", value: "32", delta: "fixture" },
 ];
 
 export const moderationQueue = [
