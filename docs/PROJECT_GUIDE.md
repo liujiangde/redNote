@@ -79,7 +79,7 @@ M1.5 基础版已经落地：
 - `scripts/check-migrations.ts`、`pnpm migration:check`：pgvector 相关破坏性 migration 审查。
 - `pnpm migration:status`：调用 Prisma migration status，查看本地数据库是否有未应用 migration 或历史漂移。
 - `scripts/check-demo-accounts.ts`、`pnpm seed:check`：检查演示账号、角色、状态和默认密码是否与文档一致；如果本地库缺列，会提示先执行 migration。
-- `scripts/check-core-routes.ts`、`pnpm smoke:routes`：核心页面、健康检查和后台登录跳转 smoke test。
+- `scripts/check-core-routes.ts`、`pnpm smoke:routes`：核心页面、搜索点击跳转、健康检查和后台登录跳转 smoke test。
 - `scripts/measure-route-baseline.ts`、`pnpm baseline:routes`：记录核心路由 RPS、P95/P99 和错误率。
 - `.github/workflows/ci.yml`：GitHub Actions 运行 migration check、环境变量检查、lint、单元测试和 typecheck。
 
@@ -253,7 +253,7 @@ pnpm seed:check
 pnpm smoke:routes -- --base-url http://localhost:3000
 ```
 
-脚本会检查首页、搜索、登录、注册、`/api/health` 和未登录访问 `/admin` 的登录跳转。未传 `--base-url` 时默认检查 `http://localhost:3000`。
+脚本会检查首页、搜索、搜索点击跳转、登录、注册、`/api/health` 和未登录访问 `/admin` 的登录跳转。未传 `--base-url` 时默认检查 `http://localhost:3000`。
 
 第一版容量基线：
 
