@@ -115,7 +115,7 @@ node --input-type=module -e "import 'dotenv/config'; import pg from 'pg'; const 
 - `pnpm env:check:production` 按生产要求检查必填变量和本地默认值
 - `pnpm smoke:routes -- --base-url http://localhost:3000` 检查首页、搜索、搜索点击跳转、登录、注册、健康检查和后台登录跳转
 - `pnpm baseline:routes -- --base-url http://localhost:3000 --requests 30 --concurrency 3` 记录核心路由 RPS、P95/P99、错误率和后台保护跳转
-- `pnpm analytics:search -- --top 8` 只读检查 Redis 搜索次数、曝光、点击和结果点击率
+- `pnpm analytics:search -- --top 8` 只读检查 Redis 搜索次数、曝光、点击和结果点击率；加 `--json` 输出机器可读结果
 - `pnpm lint` 运行 ESLint
 - `pnpm test` 运行 Node 内置测试（通过 `tsx --test` 执行 TypeScript 测试）
 - `pnpm typecheck` 生成 Prisma Client 并运行 TypeScript 检查

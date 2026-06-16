@@ -81,7 +81,7 @@ M1.5 基础版已经落地：
 - `scripts/check-demo-accounts.ts`、`pnpm seed:check`：检查演示账号、角色、状态和默认密码是否与文档一致；如果本地库缺列，会提示先执行 migration。
 - `scripts/check-core-routes.ts`、`pnpm smoke:routes`：核心页面、搜索点击跳转、健康检查和后台登录跳转 smoke test。
 - `scripts/measure-route-baseline.ts`、`pnpm baseline:routes`：记录核心路由 RPS、P95/P99 和错误率。
-- `scripts/inspect-search-analytics.ts`、`pnpm analytics:search`：只读汇总 Redis 搜索次数、曝光、点击和结果点击率。
+- `scripts/inspect-search-analytics.ts`、`pnpm analytics:search`：只读汇总 Redis 搜索次数、曝光、点击和结果点击率，支持 `--json` 输出。
 - `.github/workflows/ci.yml`：GitHub Actions 运行 migration check、环境变量检查、lint、单元测试和 typecheck。
 
 ## 并发和容量策略
@@ -268,9 +268,10 @@ pnpm baseline:routes -- --base-url http://localhost:3000 --requests 30 --concurr
 
 ```bash
 pnpm analytics:search -- --top 8
+pnpm analytics:search -- --top 8 --json
 ```
 
-脚本只读取 Redis 中的搜索热词、结果曝光和点击 zset，输出总量、基础结果点击率和 Top 查询明细；Redis 不可达时会失败并提示连接错误。
+脚本只读取 Redis 中的搜索热词、结果曝光和点击 zset，输出总量、基础结果点击率和 Top 查询明细；加 `--json` 可输出机器可读结果，Redis 不可达时会失败并提示连接错误。
 
 ## 关键环境变量
 
