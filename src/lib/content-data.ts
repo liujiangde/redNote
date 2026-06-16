@@ -1995,19 +1995,23 @@ export async function recordSearchQuery(query: string | undefined, viewerId: str
 
   // 搜索热词和个人历史是 M4.2 的轻量行为日志，不写数据库。
   // Redis 不可用时会直接跳过，搜索结果本身仍由 Prisma/fixture 返回。
-  await client.zIncrBy(SEARCH_HOT_KEY, 1, keyword);
-  await client.expire(SEARCH_HOT_KEY, SEARCH_REDIS_TTL_SECONDS);
+  try {
+    await client.zIncrBy(SEARCH_HOT_KEY, 1, keyword);
+    await client.expire(SEARCH_HOT_KEY, SEARCH_REDIS_TTL_SECONDS);
 
-  if (!viewerId) {
-    return;
+    if (!viewerId) {
+      return;
+    }
+
+    const historyKey = getSearchHistoryKey(viewerId);
+
+    await client.lRem(historyKey, 0, keyword);
+    await client.lPush(historyKey, keyword);
+    await client.lTrim(historyKey, 0, SEARCH_HISTORY_LIMIT - 1);
+    await client.expire(historyKey, SEARCH_REDIS_TTL_SECONDS);
+  } catch {
+    // 搜索行为日志不能阻断搜索主流程。
   }
-
-  const historyKey = getSearchHistoryKey(viewerId);
-
-  await client.lRem(historyKey, 0, keyword);
-  await client.lPush(historyKey, keyword);
-  await client.lTrim(historyKey, 0, SEARCH_HISTORY_LIMIT - 1);
-  await client.expire(historyKey, SEARCH_REDIS_TTL_SECONDS);
 }
 
 export async function recordSearchResultClick(query: string | undefined, noteId: string | undefined) {
@@ -2025,10 +2029,14 @@ export async function recordSearchResultClick(query: string | undefined, noteId:
   }
 
   // 点击先用 Redis zset 做轻量行为日志，后续搜索转化率可用搜索量和点击量聚合计算。
-  await client.zIncrBy(SEARCH_CLICK_KEY, 1, keyword);
-  await client.zIncrBy(SEARCH_CLICK_DETAIL_KEY, 1, `${keyword}\t${normalizedNoteId}`);
-  await client.expire(SEARCH_CLICK_KEY, SEARCH_REDIS_TTL_SECONDS);
-  await client.expire(SEARCH_CLICK_DETAIL_KEY, SEARCH_REDIS_TTL_SECONDS);
+  try {
+    await client.zIncrBy(SEARCH_CLICK_KEY, 1, keyword);
+    await client.zIncrBy(SEARCH_CLICK_DETAIL_KEY, 1, `${keyword}\t${normalizedNoteId}`);
+    await client.expire(SEARCH_CLICK_KEY, SEARCH_REDIS_TTL_SECONDS);
+    await client.expire(SEARCH_CLICK_DETAIL_KEY, SEARCH_REDIS_TTL_SECONDS);
+  } catch {
+    // 点击日志失败时仍应让用户进入笔记详情。
+  }
 }
 
 export async function getSearchDiscovery(
