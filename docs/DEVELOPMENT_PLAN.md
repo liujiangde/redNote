@@ -213,7 +213,7 @@ M4 后续建议继续：
 
 ### M6：生产化和质量保障
 
-状态：基础版继续推进。CI 已覆盖 migration 审查、环境变量检查、lint、单元测试和 typecheck；`pnpm env:check:production` 可按生产要求检查必填变量和本地默认值；`/api/health` 已实际检查数据库、Redis 和对象存储；全局 loading/error/404 页面已补齐；生产环境已启用 Next Image optimizer 并允许从 `S3_ENDPOINT` 派生对象存储图片域名；部署说明、数据库迁移流程、`pnpm smoke:routes` 核心路由冒烟脚本和 `pnpm baseline:routes` 第一版容量基线脚本已补齐。浏览器 e2e 和正式压测报告仍待补齐。
+状态：基础版继续推进。CI 已覆盖 migration 审查、环境变量检查、lint、单元测试和 typecheck；`pnpm env:check:production` 可按生产要求检查必填变量和本地默认值；`/api/health` 已实际检查数据库、Redis 和对象存储；全局 loading/error/404 页面已补齐；生产环境已启用 Next Image optimizer 并允许从 `S3_ENDPOINT` 派生对象存储图片域名；部署说明、数据库迁移流程、`pnpm smoke:routes` 核心路由冒烟脚本、`pnpm baseline:routes` 第一版容量基线脚本和 `pnpm seed:check` 演示账号一致性检查已补齐。浏览器 e2e 和正式压测报告仍待补齐。
 
 优先级：中。
 

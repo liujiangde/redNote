@@ -124,6 +124,7 @@ nanqiao@rednote.local / rednote123
 - `pnpm prisma:migrate` 执行 Prisma migration
 - `pnpm storage:bucket` 创建 MinIO bucket，并尝试配置 bucket CORS
 - `pnpm prisma:seed` 写入演示数据
+- `pnpm seed:check` 检查演示账号、角色、状态和默认密码是否与文档一致
 
 ## Current Status
 

@@ -77,6 +77,7 @@ M1.5 基础版已经落地：
 - `src/lib/i18n.ts`：`zh-CN`、`en-US` message dictionary 和基础 formatter。
 - `docker-compose.yml`、`pnpm services:up`：PostgreSQL + pgvector、Redis、MinIO 一组命令启动。
 - `scripts/check-migrations.ts`、`pnpm migration:check`：pgvector 相关破坏性 migration 审查。
+- `scripts/check-demo-accounts.ts`、`pnpm seed:check`：检查演示账号、角色、状态和默认密码是否与文档一致；如果本地库缺列，会提示先执行 migration。
 - `scripts/check-core-routes.ts`、`pnpm smoke:routes`：核心页面、健康检查和后台登录跳转 smoke test。
 - `scripts/measure-route-baseline.ts`、`pnpm baseline:routes`：记录核心路由 RPS、P95/P99 和错误率。
 - `.github/workflows/ci.yml`：GitHub Actions 运行 migration check、环境变量检查、lint、单元测试和 typecheck。
@@ -236,6 +237,14 @@ node --input-type=module -e "import 'dotenv/config'; import pg from 'pg'; const 
 ```
 
 如果数据库端口不可达，页面会临时回退到 fixture 数据，但这只用于避免开发期 500。要验证真实数据链路，必须先启动 PostgreSQL 容器。
+
+确认本地演示账号：
+
+```bash
+pnpm seed:check
+```
+
+如果提示 `users table missing columns`，先执行 `pnpm prisma:migrate` 让本地数据库跟上当前 schema，再重新 seed 或检查账号。
 
 核心路由 smoke test：
 
