@@ -55,7 +55,7 @@ test("findSensitiveNoteTerms uses the note-specific configured dictionary", () =
 });
 
 test("getSensitiveContentDictionary exposes configured dictionary source", () => {
-  const dictionary = withEnv({ COMMENT_SENSITIVE_TERMS: "广告,导流" }, () =>
+  const dictionary = withEnv({ COMMENT_SENSITIVE_TERMS: "广告,导流, 广告" }, () =>
     getSensitiveContentDictionary("comment"),
   );
 

@@ -21,10 +21,12 @@ function normalizeText(value: string) {
 }
 
 function parseConfiguredTerms(value: string | undefined) {
-  return value
+  const terms = value
     ?.split(",")
     .map((term) => term.trim())
     .filter(Boolean);
+
+  return terms ? Array.from(new Set(terms)) : undefined;
 }
 
 function getConfiguredSensitiveTerms(scope: SensitiveContentScope) {
