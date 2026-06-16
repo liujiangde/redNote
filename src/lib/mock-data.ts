@@ -95,6 +95,7 @@ export const adminMetrics = [
   { label: "待审举报", value: "23", delta: "fixture" },
   { label: "互动总数", value: "18,742", delta: "fixture" },
   { label: "搜索热词", value: "32", delta: "fixture" },
+  { label: "搜索点击率", value: "41.8%", delta: "163 / 390" },
 ];
 
 export const moderationQueue = [

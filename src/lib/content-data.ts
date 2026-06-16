@@ -386,6 +386,14 @@ function formatInteger(value: number) {
   return value.toLocaleString("zh-CN");
 }
 
+function formatPercentage(numerator: number, denominator: number) {
+  if (denominator <= 0) {
+    return "0%";
+  }
+
+  return `${((numerator / denominator) * 100).toFixed(1)}%`;
+}
+
 function formatDate(value: Date | null) {
   if (!value) {
     return "未发布";
@@ -509,6 +517,12 @@ type SearchMatchSource = {
 type SemanticSearchRow = {
   id: string;
   semanticScore: number | string;
+};
+
+type SearchAnalyticsSummary = {
+  clickCount: number;
+  hotTermCount: number;
+  searchCount: number;
 };
 
 function normalizeSearchText(value: string | undefined) {
@@ -1117,7 +1131,11 @@ async function readHotSearches(limit: number) {
   );
 }
 
-async function readHotSearchTermCount() {
+function sumRedisScores(items: Array<{ score: number }>) {
+  return items.reduce((total, item) => total + item.score, 0);
+}
+
+async function readSearchAnalyticsSummary(): Promise<SearchAnalyticsSummary | null> {
   const client = await getOptionalRedisClient();
 
   if (!client) {
@@ -1125,7 +1143,16 @@ async function readHotSearchTermCount() {
   }
 
   try {
-    return await client.zCard(SEARCH_HOT_KEY);
+    const [searchItems, clickItems] = await Promise.all([
+      client.zRangeWithScores(SEARCH_HOT_KEY, 0, -1),
+      client.zRangeWithScores(SEARCH_CLICK_KEY, 0, -1),
+    ]);
+
+    return {
+      clickCount: sumRedisScores(clickItems),
+      hotTermCount: searchItems.length,
+      searchCount: sumRedisScores(searchItems),
+    };
   } catch {
     return null;
   }
@@ -2600,28 +2627,31 @@ export async function getAdminMetrics() {
         likeCount,
         favoriteCount,
         commentCount,
-        hotSearchTermCount,
+        searchAnalytics,
       ] = await Promise.all([
-          db.user.count(),
-          db.note.count({ where: { status: NoteStatus.PUBLISHED } }),
-          db.report.count({
-            where: {
-              status: {
-                in: [ReportStatus.OPEN, ReportStatus.REVIEWING],
-              },
+        db.user.count(),
+        db.note.count({ where: { status: NoteStatus.PUBLISHED } }),
+        db.report.count({
+          where: {
+            status: {
+              in: [ReportStatus.OPEN, ReportStatus.REVIEWING],
             },
-          }),
-          db.like.count(),
-          db.favorite.count(),
-          db.comment.count({
-            where: {
-              status: CommentStatus.VISIBLE,
-            },
-          }),
-          readHotSearchTermCount(),
-        ]);
+          },
+        }),
+        db.like.count(),
+        db.favorite.count(),
+        db.comment.count({
+          where: {
+            status: CommentStatus.VISIBLE,
+          },
+        }),
+        readSearchAnalyticsSummary(),
+      ]);
 
       const interactionCount = likeCount + favoriteCount + commentCount;
+      const searchCount = searchAnalytics?.searchCount ?? 0;
+      const clickCount = searchAnalytics?.clickCount ?? 0;
+      const redisDelta = searchAnalytics === null ? "Redis 未连接" : "Redis";
 
       return [
         { label: "用户总数", value: formatInteger(userCount), delta: "实时" },
@@ -2630,8 +2660,13 @@ export async function getAdminMetrics() {
         { label: "互动总数", value: formatInteger(interactionCount), delta: "实时" },
         {
           label: "搜索热词",
-          value: hotSearchTermCount === null ? "0" : formatInteger(hotSearchTermCount),
-          delta: hotSearchTermCount === null ? "Redis 未连接" : "Redis",
+          value: formatInteger(searchAnalytics?.hotTermCount ?? 0),
+          delta: redisDelta,
+        },
+        {
+          label: "搜索点击率",
+          value: formatPercentage(clickCount, searchCount),
+          delta: `${formatInteger(clickCount)} / ${formatInteger(searchCount)}`,
         },
       ] satisfies AdminMetric[];
     },
