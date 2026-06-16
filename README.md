@@ -101,10 +101,9 @@ node --input-type=module -e "import 'dotenv/config'; import pg from 'pg'; const 
 
 - 管理员：`admin@rednote.local` / `rednote123`
 - 用户：`alan@rednote.local` / `rednote123`
-admin@rednote.local / rednote123
-alan@rednote.local / rednote123
-taro@rednote.local / rednote123
-nanqiao@rednote.local / rednote123
+- 用户：`taro@rednote.local` / `rednote123`
+- 用户：`nanqiao@rednote.local` / `rednote123`
+
 ## Scripts
 
 - `pnpm dev` 启动开发服务
