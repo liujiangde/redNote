@@ -17,11 +17,12 @@
 当前项目使用 Prisma migration 管理数据库结构，但 `note_embeddings.embedding` 是 `Unsupported("vector(1536)")`，涉及 pgvector 的 migration 必须先跑审查：
 
 ```bash
+pnpm migration:status
 pnpm migration:check
 pnpm prisma migrate deploy
 ```
 
-上线前确认目标数据库已安装 `vector` 扩展。新环境可以先执行：
+`pnpm migration:status` 应确认目标环境没有未知 migration 或未应用 migration。上线前确认目标数据库已安装 `vector` 扩展。新环境可以先执行：
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS vector;

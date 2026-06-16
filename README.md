@@ -120,6 +120,7 @@ nanqiao@rednote.local / rednote123
 - `pnpm test` 运行 Node 内置测试（通过 `tsx --test` 执行 TypeScript 测试）
 - `pnpm typecheck` 生成 Prisma Client 并运行 TypeScript 检查
 - `pnpm migration:check` 检查 pgvector 相关危险 migration
+- `pnpm migration:status` 查看本地数据库 migration 应用状态和历史漂移
 - `pnpm db:setup` 创建本地 `rednote` 数据库和用户
 - `pnpm prisma:migrate` 执行 Prisma migration
 - `pnpm storage:bucket` 创建 MinIO bucket，并尝试配置 bucket CORS
