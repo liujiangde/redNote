@@ -38,6 +38,18 @@ const routes: BaselineRoute[] = [
     redirect: "manual",
     expect: expectsLoginRedirect,
   },
+  {
+    name: "admin audit auth redirect",
+    path: "/admin/audit",
+    redirect: "manual",
+    expect: expectsLoginRedirect,
+  },
+  {
+    name: "admin safety auth redirect",
+    path: "/admin/safety",
+    redirect: "manual",
+    expect: expectsLoginRedirect,
+  },
 ];
 
 async function expectsLoginRedirect(response: Response) {
@@ -70,10 +82,20 @@ function getArg(args: string[], flag: string) {
   return args[flagIndex + 1];
 }
 
-function getNumberArg(args: string[], flag: string, fallback: number) {
+function getPositiveIntegerArg(args: string[], flag: string, fallback: number) {
   const value = Number(getArg(args, flag));
 
   if (Number.isInteger(value) && value > 0) {
+    return value;
+  }
+
+  return fallback;
+}
+
+function getPercentageArg(args: string[], flag: string, fallback: number) {
+  const value = Number(getArg(args, flag));
+
+  if (Number.isFinite(value) && value >= 0 && value <= 100) {
     return value;
   }
 
@@ -165,9 +187,9 @@ function formatMs(value: number) {
 async function main() {
   const args = process.argv.slice(2);
   const baseUrl = getBaseUrl(args);
-  const requests = getNumberArg(args, "--requests", 30);
-  const concurrency = getNumberArg(args, "--concurrency", 3);
-  const maxErrorRate = getNumberArg(args, "--max-error-rate", 0) / 100;
+  const requests = getPositiveIntegerArg(args, "--requests", 30);
+  const concurrency = getPositiveIntegerArg(args, "--concurrency", 3);
+  const maxErrorRate = getPercentageArg(args, "--max-error-rate", 0) / 100;
   const results = [];
 
   console.log(`Baseline target: ${baseUrl}`);
