@@ -20,6 +20,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "prisma generate && prisma db seed",
+    "seed:check": "tsx scripts/check-demo-accounts.ts",
     "migration:check": "tsx scripts/check-migrations.ts",
     "db:reset": "prisma migrate reset",
     "db:setup": "tsx scripts/setup-local-db.ts",
