@@ -119,7 +119,7 @@ M1.5 基础版已经落地：
 | `/admin/reports/[reportId]` | `src/app/admin/reports/[reportId]/page.tsx` | 举报详情、目标信息和处理历史 |
 | `/admin/users` | `src/app/admin/users/page.tsx` | 用户管理 |
 | `/admin/safety` | `src/app/admin/safety/page.tsx` | 内容安全词库只读巡检和文本检测 |
-| `/admin/audit` | `src/app/admin/audit/page.tsx` | 后台审计日志，展示治理动作、实体、操作人和 metadata |
+| `/admin/audit` | `src/app/admin/audit/page.tsx` | 后台审计日志，展示治理动作、实体、操作人和 metadata，支持按实体类型筛选 |
 | `/api/auth/[...nextauth]` | `src/app/api/auth/[...nextauth]/route.ts` | NextAuth handler |
 | `/api/health` | `src/app/api/health/route.ts` | 环境状态检查 |
 | `/api/v1/feed` | `src/app/api/v1/feed/route.ts` | 跨端 Feed API，支持 cursor/limit 和推荐原因 |
@@ -439,7 +439,7 @@ M4.2 搜索发现基础版：
 - 评论举报支持进入处理中、隐藏并解决、驳回，并写入处理历史。
 - 举报列表支持将当前可处理的评论举报批量标记为处理中。
 - 举报详情页展示目标信息、举报人、备注、处理结果和 `AdminAuditLog`。
-- 审计日志页集中展示后台治理动作、目标实体、操作人、时间和 metadata。
+- 审计日志页集中展示后台治理动作、目标实体、操作人、时间和 metadata，并支持按 REPORT、NOTE、USER 和系统实体筛选。
 - 笔记管理页支持隐藏、归档和恢复公开状态；状态流转会刷新公开读链路并写审计日志。
 - 用户管理页支持 `SUPER_ADMIN` 将普通用户设为管理员，或将管理员降回普通用户；不能修改自己或其他超级管理员。
 - 用户管理页支持 `SUPER_ADMIN` 封禁和解封账号；被封禁账号不能重新登录，旧 session 也会在认证边界被拒绝继续写入。
