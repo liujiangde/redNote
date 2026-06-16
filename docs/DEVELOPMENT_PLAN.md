@@ -186,6 +186,7 @@ M4.2 已完成：
 - 热搜和历史：`recordSearchQuery` 将搜索词写入 Redis zset 和用户历史 list；Redis 不可用时不阻断搜索。
 - 跨端搜索发现 API：`GET /api/v1/search/discovery` 返回统一 envelope，支持 `q` 和 `limit`。
 - Redis 缓存基础：趋势话题和搜索热词已接入 Redis；互动限流继续复用同一 Redis 连接 helper。
+- 推荐边界测试：`scoreRecommendation` 会把外部召回和排序信号夹到 0 到 1，避免负相似度、超范围或非有限值污染排序分。
 - 基础指标：后台数据看板会读取 Redis 热搜 zset 的成员数，展示当前搜索热词数量；搜索转化率需要后续曝光、点击和结果页行为埋点后再计算。
 
 M4 后续建议继续：
