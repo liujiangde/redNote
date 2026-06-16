@@ -260,7 +260,7 @@ pnpm smoke:routes -- --base-url http://localhost:3000
 pnpm baseline:routes -- --base-url http://localhost:3000 --requests 30 --concurrency 3
 ```
 
-脚本会对核心路由输出 RPS、平均耗时、P50、P95、P99、最大耗时和错误率。做正式容量评估时，先使用 `pnpm build && pnpm start` 启动生产构建，再逐步提高 `--requests` 和 `--concurrency`，同时观察数据库、Redis 和应用日志。
+脚本会对核心路由输出 RPS、平均耗时、P50、P95、P99、最大耗时和错误率，并检查后台首页、审计页和内容安全页的未登录跳转。做正式容量评估时，先使用 `pnpm build && pnpm start` 启动生产构建，再逐步提高 `--requests` 和 `--concurrency`，可用 `--max-error-rate 0.5` 设置允许错误率百分比，同时观察数据库、Redis 和应用日志。
 
 ## 关键环境变量
 
