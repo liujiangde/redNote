@@ -19,7 +19,7 @@ import {
   moderationQueue as fixtureModerationQueue,
   topicTrends as fixtureTopicTrends,
 } from "@/lib/mock-data";
-import { scoreRecommendation } from "@/lib/recommendation";
+import { clampRecommendationSignal, scoreRecommendation } from "@/lib/recommendation";
 import { formatPgVector } from "@/lib/vector";
 
 // 当前 Web 页面共用的内容读模型层：
@@ -958,7 +958,9 @@ async function getSemanticSearchScores({
       limit,
     );
 
-    return new Map(rows.map((row) => [row.id, Number(row.semanticScore) || 0]));
+    return new Map(
+      rows.map((row) => [row.id, clampRecommendationSignal(Number(row.semanticScore))]),
+    );
   } catch (error) {
     // pgvector、数据库或 embedding 服务不可用时，搜索仍然保留关键词召回。
     // 这让本地开发不被外部服务阻塞，生产环境则应监控语义召回失败率。
