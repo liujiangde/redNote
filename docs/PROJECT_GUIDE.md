@@ -73,6 +73,7 @@ M1.5 基础版已经落地：
 - `src/lib/api-contract.ts`：统一 API envelope、错误码和 cursor pagination 结构。
 - `src/app/api/v1/feed/route.ts`、`src/app/api/v1/search/route.ts`：移动端/BFF API 预留入口。
 - `src/lib/auth-boundary.ts`：用户和管理员权限边界。
+- `src/proxy.ts`：Next 16 Proxy 对 `/admin/:path*` 做前置登录和角色跳转，避免未授权请求渲染后台页面树。
 - `src/lib/i18n.ts`：`zh-CN`、`en-US` message dictionary 和基础 formatter。
 - `docker-compose.yml`、`pnpm services:up`：PostgreSQL + pgvector、Redis、MinIO 一组命令启动。
 - `scripts/check-migrations.ts`、`pnpm migration:check`：pgvector 相关破坏性 migration 审查。
@@ -379,7 +380,7 @@ M2 基础版已经接通：
 - 注册：`src/app/(auth)/register/actions.ts` 使用 Server Action 校验邮箱、用户名和密码，创建用户后跳转登录。
 - 发布：`src/app/(site)/publish/actions.ts` 使用 Server Action 校验登录态和表单字段，写入 `Note`、`NoteImage`、`Tag` 和 `note_embeddings`。
 - 上传：`src/app/api/v1/uploads/route.ts` 为登录用户签发短期上传 URL，客户端直传 MinIO/S3，发布提交时再保存图片 URL；`src/lib/upload-policy.ts` 统一校验图片类型、大小和对象 key，本地 MinIO 已通过 `MINIO_API_CORS_ALLOW_ORIGIN` 放行开发源，`pnpm storage:bucket` 会创建 bucket 并尝试配置 bucket CORS。
-- 权限：`src/lib/auth-boundary.ts` 集中处理用户和管理员 session；`/publish` 要求登录，`/admin` 要求管理员角色。
+- 权限：`src/lib/auth-boundary.ts` 集中处理用户和管理员 session；`src/proxy.ts` 对 `/admin/:path*` 做前置 JWT 角色拦截；`/publish` 要求登录，后台写操作仍要在服务层二次校验。
 
 后续增强点：孤儿对象清理、上传进度恢复、移动端 token/session、发布草稿列表和图片 metadata 尺寸识别。
 
