@@ -213,7 +213,7 @@ M4 后续建议继续：
 
 ### M6：生产化和质量保障
 
-状态：基础版继续推进。CI 已覆盖 migration 审查、环境变量检查、lint、单元测试和 typecheck；`pnpm env:check:production` 可按生产要求检查必填变量和本地默认值；`/api/health` 已实际检查数据库、Redis 和对象存储；全局 loading/error/404 页面已补齐；生产环境已启用 Next Image optimizer 并允许从 `S3_ENDPOINT` 派生对象存储图片域名；部署说明和数据库迁移流程已补齐。核心 e2e 和压测仍待补齐。
+状态：基础版继续推进。CI 已覆盖 migration 审查、环境变量检查、lint、单元测试和 typecheck；`pnpm env:check:production` 可按生产要求检查必填变量和本地默认值；`/api/health` 已实际检查数据库、Redis 和对象存储；全局 loading/error/404 页面已补齐；生产环境已启用 Next Image optimizer 并允许从 `S3_ENDPOINT` 派生对象存储图片域名；部署说明、数据库迁移流程和 `pnpm smoke:routes` 核心路由冒烟脚本已补齐。浏览器 e2e 和压测仍待补齐。
 
 优先级：中。
 
@@ -223,6 +223,7 @@ M4 后续建议继续：
 - 补充错误边界、loading 状态、日志和基础监控。
 - 优化图片策略，生产环境关闭 `images.unoptimized` 并配置可信远端图片域名或对象存储域名。
 - 增加部署说明和数据库迁移流程。
+- 增加核心路由 smoke test，覆盖首页、搜索、登录、注册、健康检查和后台登录跳转。
 - 增加基础压测和容量评估：使用生产构建测试首页、详情、搜索、登录、发布等核心路径，记录 RPS、P95/P99、错误率、数据库连接数和慢查询。
 - 对热点写入做低成本改造：浏览量、曝光、点赞、收藏等计数支持 Redis 聚合或异步批量写回，避免每次请求直接写数据库。
 

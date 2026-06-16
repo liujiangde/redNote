@@ -114,6 +114,7 @@ nanqiao@rednote.local / rednote123
 - `pnpm run ci` 运行 migration 审查、环境变量检查、ESLint、单元测试和 TypeScript 检查
 - `pnpm env:check` 检查本地环境变量并提示开发 fallback
 - `pnpm env:check:production` 按生产要求检查必填变量和本地默认值
+- `pnpm smoke:routes -- --base-url http://localhost:3000` 检查首页、搜索、登录、注册、健康检查和后台登录跳转
 - `pnpm lint` 运行 ESLint
 - `pnpm test` 运行 Node 内置测试（通过 `tsx --test` 执行 TypeScript 测试）
 - `pnpm typecheck` 生成 Prisma Client 并运行 TypeScript 检查
@@ -125,7 +126,7 @@ nanqiao@rednote.local / rednote123
 
 ## Current Status
 
-当前项目已完成 M1、M1.5、M2、M3 基础版、M3.1 收尾版、M4.1 搜索推荐基础版和 M4.2 搜索发现基础版：Feed、搜索、笔记详情、用户主页和后台列表已切换到 Prisma 查询；跨端 API contract、i18n 字典、权限边界、Docker Compose、migration 审查、环境变量检查和 CI 已落地；登录、注册、发布、预签名上传、图片上传校验、MinIO CORS 和 `/publish`、`/admin` 权限保护已接通；点赞、收藏、一级评论、二级回复、一级评论分页、关注、通知写入、通知中心页面/API、未读数、标记已读、互动限流、目标冷却、重复评论保护、`/api/v1` 互动写接口、评论删除/举报、发布/评论敏感词拦截、后台隐藏/驳回、用户屏蔽和不感兴趣过滤已接通。M4 已让 Feed 按推荐分排序，搜索支持关键词 + pgvector 语义召回兜底、失败日志、命中原因、搜索建议、热搜、个人历史、分类统计和 `/api/v1/feed`、`/api/v1/search` cursor 分页，并补齐 Feed 推荐候选 Redis 缓存、详情页相似笔记、作者主页推荐和推荐评分单元测试。M5 已补举报详情页、处理历史、批量开始处理、笔记隐藏/归档/恢复、用户角色管理和账号封禁基础版；M6 已补环境变量检查、`/api/health` 依赖就绪检查、全局 loading/error/404 兜底页面和生产图片优化。下一步继续补更多搜索/推荐测试、敏感词后台运营、申诉流程和核心 e2e。
+当前项目已完成 M1、M1.5、M2、M3 基础版、M3.1 收尾版、M4.1 搜索推荐基础版和 M4.2 搜索发现基础版：Feed、搜索、笔记详情、用户主页和后台列表已切换到 Prisma 查询；跨端 API contract、i18n 字典、权限边界、Docker Compose、migration 审查、环境变量检查和 CI 已落地；登录、注册、发布、预签名上传、图片上传校验、MinIO CORS 和 `/publish`、`/admin` 权限保护已接通；点赞、收藏、一级评论、二级回复、一级评论分页、关注、通知写入、通知中心页面/API、未读数、标记已读、互动限流、目标冷却、重复评论保护、`/api/v1` 互动写接口、评论删除/举报、发布/评论敏感词拦截、后台隐藏/驳回、用户屏蔽和不感兴趣过滤已接通。M4 已让 Feed 按推荐分排序，搜索支持关键词 + pgvector 语义召回兜底、失败日志、命中原因、搜索建议、热搜、个人历史、分类统计和 `/api/v1/feed`、`/api/v1/search` cursor 分页，并补齐 Feed 推荐候选 Redis 缓存、详情页相似笔记、作者主页推荐和推荐评分单元测试。M5 已补举报详情页、处理历史、批量开始处理、笔记隐藏/归档/恢复、用户角色管理和账号封禁基础版；M6 已补环境变量检查、`/api/health` 依赖就绪检查、全局 loading/error/404 兜底页面、生产图片优化和核心路由 smoke 脚本。下一步继续补更多搜索/推荐测试、敏感词后台运营、申诉流程、浏览器 e2e 和压测基线。
 
 ## Project Shape
 

@@ -41,12 +41,15 @@ CREATE EXTENSION IF NOT EXISTS vector;
 部署完成后检查：
 
 ```bash
+pnpm smoke:routes -- --base-url https://<host>
 curl -f https://<host>/api/health
 ```
 
 `/api/health` 会检查数据库、Redis 和对象存储 bucket。数据库或对象存储异常会返回 `503` 和 `degraded`，Redis 或 AI 未配置会在响应体中展示对应状态，便于排障。
 
-建议 smoke test：
+`pnpm smoke:routes` 会检查首页、搜索、登录、注册、健康检查和后台登录跳转。脚本默认使用 `http://localhost:3000`，生产或预发环境需要通过 `--base-url` 指向目标域名。
+
+继续人工验证：
 
 - 打开首页、搜索页、通知页和后台首页。
 - 登录普通用户，发布一篇草稿和一篇公开笔记。

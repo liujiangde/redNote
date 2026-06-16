@@ -76,6 +76,7 @@ M1.5 基础版已经落地：
 - `src/lib/i18n.ts`：`zh-CN`、`en-US` message dictionary 和基础 formatter。
 - `docker-compose.yml`、`pnpm services:up`：PostgreSQL + pgvector、Redis、MinIO 一组命令启动。
 - `scripts/check-migrations.ts`、`pnpm migration:check`：pgvector 相关破坏性 migration 审查。
+- `scripts/check-core-routes.ts`、`pnpm smoke:routes`：核心页面、健康检查和后台登录跳转 smoke test。
 - `.github/workflows/ci.yml`：GitHub Actions 运行 migration check、环境变量检查、lint、单元测试和 typecheck。
 
 ## 并发和容量策略
@@ -230,6 +231,14 @@ node --input-type=module -e "import 'dotenv/config'; import pg from 'pg'; const 
 ```
 
 如果数据库端口不可达，页面会临时回退到 fixture 数据，但这只用于避免开发期 500。要验证真实数据链路，必须先启动 PostgreSQL 容器。
+
+核心路由 smoke test：
+
+```bash
+pnpm smoke:routes -- --base-url http://localhost:3000
+```
+
+脚本会检查首页、搜索、登录、注册、`/api/health` 和未登录访问 `/admin` 的登录跳转。未传 `--base-url` 时默认检查 `http://localhost:3000`。
 
 ## 关键环境变量
 
