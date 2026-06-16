@@ -66,6 +66,17 @@ test("getSensitiveContentDictionary exposes configured dictionary source", () =>
   });
 });
 
+test("getSensitiveContentDictionary supports pasted multiline dictionaries", () => {
+  const dictionary = withEnv({ COMMENT_SENSITIVE_TERMS: "广告，导流\n站外交易;广告；刷量" }, () =>
+    getSensitiveContentDictionary("comment"),
+  );
+
+  assert.deepEqual(dictionary, {
+    source: "env",
+    terms: ["广告", "导流", "站外交易", "刷量"],
+  });
+});
+
 test("analyzeSensitiveContentLines returns per-line matches", () => {
   const results = withEnv({ COMMENT_SENSITIVE_TERMS: "广告,导流" }, () =>
     analyzeSensitiveContentLines("第一条正常\n第二条包含导流\n\n第三条广告", "comment"),

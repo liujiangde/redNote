@@ -28,7 +28,7 @@ function normalizeText(value: string) {
 
 function parseConfiguredTerms(value: string | undefined) {
   const terms = value
-    ?.split(",")
+    ?.split(/[,\n，;；]+/)
     .map((term) => term.trim())
     .filter(Boolean);
 
