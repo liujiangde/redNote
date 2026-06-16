@@ -328,6 +328,11 @@ export type AdminAuditLogRow = AdminReportAuditLog & {
   entityType: string;
 };
 
+export type AdminAuditLogFilters = {
+  entityType?: string;
+  limit?: number;
+};
+
 export type AdminReportDetail = AdminReportRow & {
   auditLogs: AdminReportAuditLog[];
   comment: {
@@ -2907,12 +2912,17 @@ export async function getAdminReportDetail(reportId: string): Promise<AdminRepor
   );
 }
 
-export async function getAdminAuditLogs(limit = 80) {
+export async function getAdminAuditLogs({ entityType, limit = 80 }: AdminAuditLogFilters = {}) {
   await connection();
 
   return withDatabaseFallback<AdminAuditLogRow[]>(
     async () => {
       const logs = await db.adminAuditLog.findMany({
+        where: entityType
+          ? {
+              entityType,
+            }
+          : undefined,
         include: {
           actor: {
             select: {
