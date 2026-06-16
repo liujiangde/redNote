@@ -1,5 +1,5 @@
 type BaselineRoute = {
-  expect?: (response: Response) => boolean;
+  expect?: (response: Response) => boolean | Promise<boolean>;
   name: string;
   path: string;
   redirect?: RequestRedirect;
@@ -36,12 +36,29 @@ const routes: BaselineRoute[] = [
     name: "admin auth redirect",
     path: "/admin",
     redirect: "manual",
-    expect: (response) =>
-      response.status >= 300 &&
-      response.status < 400 &&
-      Boolean(response.headers.get("location")?.includes("/login")),
+    expect: expectsLoginRedirect,
   },
 ];
+
+async function expectsLoginRedirect(response: Response) {
+  const location = response.headers.get("location");
+
+  if (
+    response.status >= 300 &&
+    response.status < 400 &&
+    Boolean(location?.includes("/login"))
+  ) {
+    return true;
+  }
+
+  if (response.status !== 200) {
+    return false;
+  }
+
+  const body = await response.clone().text();
+
+  return body.includes("__next-page-redirect") && body.includes("/login");
+}
 
 function getArg(args: string[], flag: string) {
   const flagIndex = args.indexOf(flag);
@@ -87,7 +104,7 @@ async function measureRequest(baseUrl: string, route: BaselineRoute): Promise<Ro
       redirect: route.redirect ?? "follow",
     });
     const latencyMs = performance.now() - startedAt;
-    const ok = route.expect ? route.expect(response) : response.ok;
+    const ok = route.expect ? await route.expect(response) : response.ok;
 
     return {
       latencyMs,

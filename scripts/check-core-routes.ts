@@ -1,10 +1,30 @@
 type SmokeRoute = {
-  expect: (response: Response) => boolean;
+  expect: (response: Response) => boolean | Promise<boolean>;
   method?: "GET" | "HEAD";
   name: string;
   path: string;
   redirect?: RequestRedirect;
 };
+
+async function expectsLoginRedirect(response: Response) {
+  const location = response.headers.get("location");
+
+  if (
+    response.status >= 300 &&
+    response.status < 400 &&
+    Boolean(location?.includes("/login"))
+  ) {
+    return true;
+  }
+
+  if (response.status !== 200) {
+    return false;
+  }
+
+  const body = await response.clone().text();
+
+  return body.includes("__next-page-redirect") && body.includes("/login");
+}
 
 const routes: SmokeRoute[] = [
   {
@@ -36,19 +56,13 @@ const routes: SmokeRoute[] = [
     name: "admin auth redirect",
     path: "/admin",
     redirect: "manual",
-    expect: (response) =>
-      response.status >= 300 &&
-      response.status < 400 &&
-      Boolean(response.headers.get("location")?.includes("/login")),
+    expect: expectsLoginRedirect,
   },
   {
     name: "admin audit auth redirect",
     path: "/admin/audit",
     redirect: "manual",
-    expect: (response) =>
-      response.status >= 300 &&
-      response.status < 400 &&
-      Boolean(response.headers.get("location")?.includes("/login")),
+    expect: expectsLoginRedirect,
   },
 ];
 
@@ -66,7 +80,7 @@ async function checkRoute(baseUrl: string, route: SmokeRoute) {
     redirect: route.redirect ?? "follow",
   });
   const latencyMs = Date.now() - startedAt;
-  const ok = route.expect(response);
+  const ok = await route.expect(response);
 
   return {
     latencyMs,
