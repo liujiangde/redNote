@@ -46,6 +46,8 @@ const SEARCH_CACHE_TTL_SECONDS = 60 * 5;
 const FEED_CANDIDATE_CACHE_TTL_SECONDS = 60;
 const FEED_CANDIDATE_CACHE_KEY = "rednote:feed:candidates:v1";
 const SEARCH_HOT_KEY = "rednote:search:hot:v1";
+const SEARCH_CLICK_KEY = "rednote:search:clicks:v1";
+const SEARCH_CLICK_DETAIL_KEY = "rednote:search:clicks:details:v1";
 const SEARCH_TOPIC_CACHE_KEY = "rednote:search:topics:v1";
 
 let databaseReachability:
@@ -1979,6 +1981,27 @@ export async function recordSearchQuery(query: string | undefined, viewerId: str
   await client.lPush(historyKey, keyword);
   await client.lTrim(historyKey, 0, SEARCH_HISTORY_LIMIT - 1);
   await client.expire(historyKey, SEARCH_REDIS_TTL_SECONDS);
+}
+
+export async function recordSearchResultClick(query: string | undefined, noteId: string | undefined) {
+  const keyword = normalizeSearchQuery(query);
+  const normalizedNoteId = noteId?.trim().slice(0, 96) ?? "";
+
+  if (keyword.length < 2 || !normalizedNoteId) {
+    return;
+  }
+
+  const client = await getOptionalRedisClient();
+
+  if (!client) {
+    return;
+  }
+
+  // 点击先用 Redis zset 做轻量行为日志，后续搜索转化率可用搜索量和点击量聚合计算。
+  await client.zIncrBy(SEARCH_CLICK_KEY, 1, keyword);
+  await client.zIncrBy(SEARCH_CLICK_DETAIL_KEY, 1, `${keyword}\t${normalizedNoteId}`);
+  await client.expire(SEARCH_CLICK_KEY, SEARCH_REDIS_TTL_SECONDS);
+  await client.expire(SEARCH_CLICK_DETAIL_KEY, SEARCH_REDIS_TTL_SECONDS);
 }
 
 export async function getSearchDiscovery(

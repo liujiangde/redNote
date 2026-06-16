@@ -5,10 +5,12 @@ import { Bookmark, Heart, MessageCircle, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import type { NoteCardData } from "@/lib/content-data";
 
-export function NoteCard({ note }: Readonly<{ note: NoteCardData }>) {
+export function NoteCard({ href, note }: Readonly<{ href?: string; note: NoteCardData }>) {
+  const noteHref = href ?? `/notes/${note.id}`;
+
   return (
     <article className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-      <Link href={`/notes/${note.id}`} className="block">
+      <Link href={noteHref} className="block">
         <div className="relative aspect-[4/3] bg-slate-100">
           <Image
             src={note.imageUrl}
@@ -22,7 +24,7 @@ export function NoteCard({ note }: Readonly<{ note: NoteCardData }>) {
       </Link>
       <div className="space-y-4 p-4">
         <div>
-          <Link href={`/notes/${note.id}`}>
+          <Link href={noteHref}>
             <h2 className="line-clamp-2 text-base font-semibold text-slate-950">
               {note.title}
             </h2>

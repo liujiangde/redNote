@@ -5,6 +5,21 @@ import { NoteCard } from "@/components/note-card";
 import { getCurrentSession } from "@/lib/auth-boundary";
 import { getSearchDiscovery, recordSearchQuery, searchPublishedNotes } from "@/lib/content-data";
 
+function createSearchResultHref(query: string | undefined, noteId: string) {
+  const keyword = query?.trim();
+
+  if (!keyword) {
+    return `/notes/${noteId}`;
+  }
+
+  const params = new URLSearchParams({
+    noteId,
+    q: keyword,
+  });
+
+  return `/api/v1/search/click?${params.toString()}`;
+}
+
 export default async function SearchPage({
   searchParams,
 }: {
@@ -85,7 +100,7 @@ export default async function SearchPage({
             <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
               {notes.map((note) => (
                 <div key={note.id} className="space-y-2">
-                  <NoteCard note={note} />
+                  <NoteCard href={createSearchResultHref(q, note.id)} note={note} />
                   <div className="flex flex-wrap gap-2 text-xs text-slate-500">
                     {note.matchReasons.map((reason) => (
                       <span
