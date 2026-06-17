@@ -33,7 +33,7 @@ function parseConfiguredTerms(value: string | undefined) {
   const terms = value
     ?.split(/[,\n，;；]+/)
     .map((term) => term.trim())
-    .filter(Boolean);
+    .filter((term) => term.length > 0 && !term.startsWith("#"));
 
   return terms ? Array.from(new Set(terms)) : undefined;
 }

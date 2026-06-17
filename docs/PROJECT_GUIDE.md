@@ -288,8 +288,8 @@ pnpm analytics:search -- --top 8 --json
 | `S3_BUCKET` | 上传 bucket | `rednote-dev` |
 | `OPENAI_API_KEY` | 真实 embedding 调用 | 无 |
 | `OPENAI_EMBEDDING_MODEL` | embedding 模型 | `text-embedding-3-small` |
-| `COMMENT_SENSITIVE_TERMS` | 评论敏感词词库，支持逗号、中文逗号、分号或换行分隔 | 内置基础词库 |
-| `NOTE_SENSITIVE_TERMS` | 笔记发布敏感词词库，支持逗号、中文逗号、分号或换行分隔 | 内置基础词库 |
+| `COMMENT_SENSITIVE_TERMS` | 评论敏感词词库，支持逗号、中文逗号、分号、换行分隔和 `#` 整行注释 | 内置基础词库 |
+| `NOTE_SENSITIVE_TERMS` | 笔记发布敏感词词库，支持逗号、中文逗号、分号、换行分隔和 `#` 整行注释 | 内置基础词库 |
 | `NEXTAUTH_SECRET` | NextAuth 会话签名 | 生产环境必须设置 |
 | `NEXTAUTH_URL` | NextAuth 回调 URL | 本地通常是 `http://localhost:3000` |
 
@@ -352,7 +352,7 @@ M3.1 评论治理基础版：
 - 评论举报：详情页举报按钮和 `POST /api/v1/comments/[commentId]` 都只允许举报可见评论，会写入 `ReportTargetType.COMMENT` 举报。
 - 后台处理：`/admin/reports` 对评论举报支持标记处理中、隐藏评论并解决、驳回举报；处理动作写入 `AdminAuditLog`，并给举报人写入 `REPORT_UPDATE` 通知。
 - 审核隐藏：管理员隐藏一级评论时会同步隐藏其回复，避免回复脱离上下文；普通读链路不展示 `HIDDEN` 或 `DELETED` 评论。
-- 敏感词：发布笔记和评论写入前会经过 `src/lib/content-safety.ts` 的基础敏感词检查；命中时返回表单/API 错误，不会写入内容。评论和笔记词库可分别通过 `COMMENT_SENSITIVE_TERMS`、`NOTE_SENSITIVE_TERMS` 配置，支持逗号、中文逗号、分号或换行分隔。
+- 敏感词：发布笔记和评论写入前会经过 `src/lib/content-safety.ts` 的基础敏感词检查；命中时返回表单/API 错误，不会写入内容。评论和笔记词库可分别通过 `COMMENT_SENSITIVE_TERMS`、`NOTE_SENSITIVE_TERMS` 配置，支持逗号、中文逗号、分号、换行分隔和 `#` 整行注释。
 
 当前评论恢复、敏感词后台运营、申诉流程和移动端举报列表不再放入 M3.1，会在后续治理阶段继续补齐。
 
@@ -463,7 +463,7 @@ M4.2 搜索发现基础版：
 - 举报列表支持将当前可处理的评论举报批量标记为处理中。
 - 举报详情页展示目标信息、举报人、备注、处理结果和 `AdminAuditLog`。
 - 审计日志页集中展示后台治理动作、目标实体、操作人、时间和 metadata，并支持按 REPORT、NOTE、USER 和系统实体筛选。
-- 内容安全页展示评论/笔记敏感词来源，支持单段命中测试和逐行批量巡检；环境变量词库支持常见分隔符，便于从表格或运营词表粘贴。
+- 内容安全页展示评论/笔记敏感词来源，支持单段命中测试和逐行批量巡检；环境变量词库支持常见分隔符和 `#` 整行注释，便于从表格或运营词表粘贴。
 - 数据看板展示用户总数、已发布笔记、待审举报、互动总数、搜索热词数量和搜索点击率；Redis 不可用时搜索指标降级为 0 并标注连接状态。
 - 笔记管理页支持隐藏、归档和恢复公开状态；状态流转会刷新公开读链路并写审计日志。
 - 用户管理页支持 `SUPER_ADMIN` 将普通用户设为管理员，或将管理员降回普通用户；不能修改自己或其他超级管理员。

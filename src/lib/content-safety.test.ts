@@ -85,6 +85,17 @@ test("getSensitiveContentDictionary supports pasted multiline dictionaries", () 
   });
 });
 
+test("getSensitiveContentDictionary ignores full-line comments", () => {
+  const dictionary = withEnv({ COMMENT_SENSITIVE_TERMS: "# 引流词\n广告\n# 风控词\n刷量" }, () =>
+    getSensitiveContentDictionary("comment"),
+  );
+
+  assert.deepEqual(dictionary, {
+    source: "env",
+    terms: ["广告", "刷量"],
+  });
+});
+
 test("analyzeSensitiveContentLines returns per-line matches", () => {
   const results = withEnv({ COMMENT_SENSITIVE_TERMS: "广告,导流" }, () =>
     analyzeSensitiveContentLines("第一条正常\n第二条包含导流\n\n第三条广告", "comment"),
