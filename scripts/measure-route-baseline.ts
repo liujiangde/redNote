@@ -184,19 +184,62 @@ function formatMs(value: number) {
   return `${Math.round(value)}ms`;
 }
 
+function getFailureStatuses(failures: RouteSample[]) {
+  return Array.from(new Set(failures.map((failure) => String(failure.status))));
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const baseUrl = getBaseUrl(args);
   const requests = getPositiveIntegerArg(args, "--requests", 30);
   const concurrency = getPositiveIntegerArg(args, "--concurrency", 3);
   const maxErrorRate = getPercentageArg(args, "--max-error-rate", 0) / 100;
+  const asJson = args.includes("--json");
   const results = [];
 
-  console.log(`Baseline target: ${baseUrl}`);
-  console.log(`Requests per route: ${requests}; concurrency: ${concurrency}`);
+  if (!asJson) {
+    console.log(`Baseline target: ${baseUrl}`);
+    console.log(`Requests per route: ${requests}; concurrency: ${concurrency}`);
+  }
 
   for (const route of routes) {
     results.push(await measureRoute(baseUrl, route, requests, concurrency));
+  }
+
+  const failedResults = results.filter((result) => result.errorRate > maxErrorRate);
+
+  if (asJson) {
+    console.log(
+      JSON.stringify(
+        {
+          concurrency,
+          failedRoutes: failedResults.map((result) => result.name),
+          maxErrorRate,
+          requestsPerRoute: requests,
+          results: results.map((result) => ({
+            avgMs: result.avgMs,
+            errorRate: result.errorRate,
+            failureStatuses: getFailureStatuses(result.failures),
+            maxMs: result.maxMs,
+            name: result.name,
+            p50Ms: result.p50Ms,
+            p95Ms: result.p95Ms,
+            p99Ms: result.p99Ms,
+            requests: result.requests,
+            rps: result.rps,
+          })),
+          target: baseUrl,
+        },
+        null,
+        2,
+      ),
+    );
+
+    if (failedResults.length) {
+      process.exit(1);
+    }
+
+    return;
   }
 
   console.log("route | requests | rps | avg | p50 | p95 | p99 | max | errors");
@@ -218,11 +261,9 @@ async function main() {
     );
   }
 
-  const failedResults = results.filter((result) => result.errorRate > maxErrorRate);
-
   if (failedResults.length) {
     for (const result of failedResults) {
-      const statuses = Array.from(new Set(result.failures.map((failure) => String(failure.status))));
+      const statuses = getFailureStatuses(result.failures);
 
       console.error(`${result.name} exceeded error threshold: ${statuses.join(", ")}`);
     }

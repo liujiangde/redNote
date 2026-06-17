@@ -54,9 +54,10 @@ curl -f https://<host>/api/health
 
 ```bash
 pnpm baseline:routes -- --base-url https://<host> --requests 30 --concurrency 3
+pnpm baseline:routes -- --base-url https://<host> --requests 30 --concurrency 3 --json
 ```
 
-`pnpm baseline:routes` 会输出每个核心路由的 RPS、平均耗时、P50、P95、P99、最大耗时和错误率，并覆盖后台首页、审计页和内容安全页的未登录跳转。可通过 `--max-error-rate 0.5` 这类百分比阈值让脚本在错误率超标时失败。这个脚本用于轻量回归和容量起点记录；正式压测仍需要在隔离环境中扩大请求量，并结合数据库连接数、慢查询、Redis 状态和应用日志一起判断瓶颈。
+`pnpm baseline:routes` 会输出每个核心路由的 RPS、平均耗时、P50、P95、P99、最大耗时和错误率，并覆盖后台首页、审计页和内容安全页的未登录跳转。可通过 `--max-error-rate 0.5` 这类百分比阈值让脚本在错误率超标时失败；加 `--json` 可生成机器可读基线报告，便于归档对比。这个脚本用于轻量回归和容量起点记录；正式压测仍需要在隔离环境中扩大请求量，并结合数据库连接数、慢查询、Redis 状态和应用日志一起判断瓶颈。
 
 搜索指标排障：
 
