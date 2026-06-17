@@ -116,7 +116,9 @@ async function checkRoute(baseUrl: string, route: SmokeRoute) {
 }
 
 async function main() {
-  const baseUrl = getBaseUrl(process.argv.slice(2));
+  const args = process.argv.slice(2);
+  const baseUrl = getBaseUrl(args);
+  const asJson = args.includes("--json");
   const results = [];
 
   for (const route of routes) {
@@ -131,6 +133,28 @@ async function main() {
         status: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  const failedRoutes = results.filter((result) => !result.ok).map((result) => result.name);
+
+  if (asJson) {
+    console.log(
+      JSON.stringify(
+        {
+          failedRoutes,
+          results,
+          target: baseUrl,
+        },
+        null,
+        2,
+      ),
+    );
+
+    if (failedRoutes.length) {
+      process.exit(1);
+    }
+
+    return;
   }
 
   for (const result of results) {

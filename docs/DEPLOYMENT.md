@@ -43,12 +43,13 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 ```bash
 pnpm smoke:routes -- --base-url https://<host>
+pnpm smoke:routes -- --base-url https://<host> --json
 curl -f https://<host>/api/health
 ```
 
 `/api/health` 会检查数据库、Redis 和对象存储 bucket。数据库或对象存储异常会返回 `503` 和 `degraded`，Redis 或 AI 未配置会在响应体中展示对应状态，便于排障。
 
-`pnpm smoke:routes` 会检查首页、搜索、搜索点击跳转、登录、注册、健康检查和后台登录跳转。脚本默认使用 `http://localhost:3000`，生产或预发环境需要通过 `--base-url` 指向目标域名。
+`pnpm smoke:routes` 会检查首页、搜索、搜索点击跳转、登录、注册、健康检查和后台登录跳转。脚本默认使用 `http://localhost:3000`，生产或预发环境需要通过 `--base-url` 指向目标域名；加 `--json` 可输出机器可读结果。
 
 记录第一版容量基线：
 

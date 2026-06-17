@@ -113,7 +113,7 @@ node --input-type=module -e "import 'dotenv/config'; import pg from 'pg'; const 
 - `pnpm run ci` 运行 migration 审查、环境变量检查、ESLint、单元测试和 TypeScript 检查
 - `pnpm env:check` 检查本地环境变量并提示开发 fallback
 - `pnpm env:check:production` 按生产要求检查必填变量和本地默认值
-- `pnpm smoke:routes -- --base-url http://localhost:3000` 检查首页、搜索、搜索点击跳转、登录、注册、健康检查和后台登录跳转
+- `pnpm smoke:routes -- --base-url http://localhost:3000` 检查首页、搜索、搜索点击跳转、登录、注册、健康检查和后台登录跳转；加 `--json` 输出机器可读结果
 - `pnpm baseline:routes -- --base-url http://localhost:3000 --requests 30 --concurrency 3` 记录核心路由 RPS、P95/P99、错误率和后台保护跳转；加 `--json` 输出机器可读基线报告
 - `pnpm analytics:search -- --top 8` 只读检查 Redis 搜索次数、曝光、点击和结果点击率；加 `--json` 输出机器可读结果，也可用 `--min-searches 1 --min-exposures 1` 做阈值巡检
 - `pnpm lint` 运行 ESLint
