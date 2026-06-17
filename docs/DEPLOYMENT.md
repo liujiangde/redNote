@@ -5,7 +5,7 @@
 ## 发布前检查
 
 1. 安装依赖：`pnpm install --frozen-lockfile`
-2. 校验环境变量：`pnpm env:check:production`
+2. 校验环境变量：`pnpm env:check:production`，需要归档时可执行 `pnpm env:check:production -- --json`
 3. 运行质量门禁：`pnpm run ci`
 4. 生成 Prisma Client：`pnpm prisma:generate`
 5. 构建应用：`pnpm build`

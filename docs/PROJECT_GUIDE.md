@@ -293,7 +293,7 @@ pnpm analytics:search -- --top 8 --json
 | `NEXTAUTH_SECRET` | NextAuth 会话签名 | 生产环境必须设置 |
 | `NEXTAUTH_URL` | NextAuth 回调 URL | 本地通常是 `http://localhost:3000` |
 
-`pnpm env:check` 会检查本地配置并提示哪些变量正在使用开发 fallback；`pnpm env:check:production` 会按生产要求失败退出，确保必填变量存在且没有继续使用本地默认连接和对象存储密钥。
+`pnpm env:check` 会检查本地配置并提示哪些变量正在使用开发 fallback；`pnpm env:check:production` 会按生产要求失败退出，确保必填变量存在且没有继续使用本地默认连接和对象存储密钥。两个命令都支持追加 `--json` 输出机器可读结果。
 
 ## 开发流程
 

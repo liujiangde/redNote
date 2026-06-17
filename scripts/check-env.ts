@@ -2,8 +2,8 @@ import { config } from "dotenv";
 
 import { formatEnvironmentValidation, validateAppEnvironment } from "../src/lib/env-validation";
 
-config({ path: ".env.local" });
-config({ path: ".env" });
+config({ path: ".env.local", quiet: true });
+config({ path: ".env", quiet: true });
 
 function getModeArg(args: string[]) {
   const modeIndex = args.indexOf("--mode");
@@ -15,11 +15,16 @@ function getModeArg(args: string[]) {
   return args[modeIndex + 1];
 }
 
+const args = process.argv.slice(2);
 const result = validateAppEnvironment(process.env, {
-  mode: getModeArg(process.argv.slice(2)),
+  mode: getModeArg(args),
 });
 
-console.log(formatEnvironmentValidation(result));
+if (args.includes("--json")) {
+  console.log(JSON.stringify(result, null, 2));
+} else {
+  console.log(formatEnvironmentValidation(result));
+}
 
 if (!result.ok) {
   process.exit(1);
