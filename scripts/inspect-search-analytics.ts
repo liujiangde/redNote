@@ -10,8 +10,8 @@ type ScoredItem = {
   value: string;
 };
 
-config({ path: ".env.local" });
-config({ path: ".env" });
+config({ path: ".env.local", quiet: true });
+config({ path: ".env", quiet: true });
 
 function getPositiveIntegerArg(args: string[], flag: string, fallback: number) {
   const flagIndex = args.indexOf(flag);
