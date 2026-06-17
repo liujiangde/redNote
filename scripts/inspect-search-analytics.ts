@@ -10,6 +10,13 @@ type ScoredItem = {
   value: string;
 };
 
+type ThresholdCheck = {
+  actual: number;
+  label: string;
+  minimum: number;
+  passed: boolean;
+};
+
 config({ path: ".env.local", quiet: true });
 config({ path: ".env", quiet: true });
 
@@ -23,6 +30,18 @@ function getPositiveIntegerArg(args: string[], flag: string, fallback: number) {
   }
 
   return fallback;
+}
+
+function getOptionalNonNegativeNumberArg(args: string[], flag: string) {
+  const flagIndex = args.indexOf(flag);
+  const rawValue = flagIndex === -1 ? undefined : args[flagIndex + 1];
+  const value = rawValue === undefined ? Number.NaN : Number(rawValue);
+
+  if (Number.isFinite(value) && value >= 0) {
+    return value;
+  }
+
+  return undefined;
 }
 
 function formatInteger(value: number) {
@@ -43,6 +62,48 @@ function sumScores(items: ScoredItem[]) {
 
 function toScoreMap(items: ScoredItem[]) {
   return new Map(items.map((item) => [item.value, item.score]));
+}
+
+function buildThresholdChecks(args: string[], totals: { clicks: number; exposures: number; searches: number }) {
+  const configuredChecks = [
+    {
+      actual: totals.searches,
+      flag: "--min-searches",
+      label: "searches",
+      minimum: getOptionalNonNegativeNumberArg(args, "--min-searches"),
+    },
+    {
+      actual: totals.exposures,
+      flag: "--min-exposures",
+      label: "exposures",
+      minimum: getOptionalNonNegativeNumberArg(args, "--min-exposures"),
+    },
+    {
+      actual: totals.clicks,
+      flag: "--min-clicks",
+      label: "clicks",
+      minimum: getOptionalNonNegativeNumberArg(args, "--min-clicks"),
+    },
+  ];
+
+  return configuredChecks
+    .filter((check): check is Omit<typeof check, "minimum"> & { minimum: number } => {
+      if (check.minimum !== undefined) {
+        return true;
+      }
+
+      if (args.includes(check.flag)) {
+        throw new Error(`${check.flag} requires a non-negative number.`);
+      }
+
+      return false;
+    })
+    .map<ThresholdCheck>((check) => ({
+      actual: check.actual,
+      label: check.label,
+      minimum: check.minimum,
+      passed: check.actual >= check.minimum,
+    }));
 }
 
 async function run() {
@@ -70,6 +131,13 @@ async function run() {
     const searchCount = sumScores(searchItems);
     const clickCount = sumScores(clickItems);
     const exposureCount = sumScores(exposureItems);
+    const totals = {
+      clicks: clickCount,
+      exposures: exposureCount,
+      searches: searchCount,
+    };
+    const checks = buildThresholdChecks(args, totals);
+    const failedChecks = checks.filter((check) => !check.passed);
     const rows = searchItems
       .sort((left, right) => right.score - left.score)
       .slice(0, top)
@@ -91,6 +159,7 @@ async function run() {
         JSON.stringify(
           {
             queries: rows,
+            checks,
             totals: {
               clicks: clickCount,
               ctr: formatPercentage(clickCount, exposureCount),
@@ -102,6 +171,10 @@ async function run() {
           2,
         ),
       );
+
+      if (failedChecks.length > 0) {
+        process.exitCode = 1;
+      }
 
       return;
     }
@@ -125,6 +198,22 @@ async function run() {
           row.ctr,
         ].join(" | "),
       );
+    }
+
+    if (checks.length > 0) {
+      console.log("");
+      console.log("threshold checks");
+
+      for (const check of checks) {
+        const status = check.passed ? "pass" : "fail";
+        console.log(
+          `${status}: ${check.label} ${formatInteger(check.actual)} >= ${formatInteger(check.minimum)}`,
+        );
+      }
+    }
+
+    if (failedChecks.length > 0) {
+      process.exitCode = 1;
     }
   } catch (error) {
     console.error("Failed to inspect search analytics.");

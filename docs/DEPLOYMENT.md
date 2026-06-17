@@ -63,9 +63,10 @@ pnpm baseline:routes -- --base-url https://<host> --requests 30 --concurrency 3
 ```bash
 pnpm analytics:search -- --top 8
 pnpm analytics:search -- --top 8 --json
+pnpm analytics:search -- --min-searches 1 --min-exposures 1
 ```
 
-该脚本只读 Redis 搜索热词、结果曝光和点击 zset，用于快速核对后台搜索热词和基础点击率口径；加 `--json` 可输出机器可读结果，生产环境执行时需要确保 `REDIS_URL` 指向目标环境。
+该脚本只读 Redis 搜索热词、结果曝光和点击 zset，用于快速核对后台搜索热词和基础点击率口径；加 `--json` 可输出机器可读结果，生产环境执行时需要确保 `REDIS_URL` 指向目标环境。预发巡检可以加 `--min-searches`、`--min-exposures` 或 `--min-clicks`，未达到阈值时脚本会返回非 0。
 
 继续人工验证：
 
