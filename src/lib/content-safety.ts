@@ -21,9 +21,12 @@ const DEFAULT_SENSITIVE_TERMS = [
 ];
 
 function normalizeText(value: string) {
-  // 敏感词检查先去掉空白再小写化，避免“加 微 信”这类简单拆字绕过。
+  // 敏感词检查先去掉空白和零宽字符再小写化，避免“加 微 信”这类简单拆字绕过。
   // 这只是 M3.1 基础拦截，后续 M5 应替换为可运营词库和更完整的审核服务。
-  return value.trim().replace(/\s+/g, "").toLowerCase();
+  return value
+    .trim()
+    .replace(/[\s\u200B-\u200D\uFEFF]+/g, "")
+    .toLowerCase();
 }
 
 function parseConfiguredTerms(value: string | undefined) {

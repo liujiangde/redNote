@@ -43,6 +43,14 @@ test("findSensitiveCommentTerms detects simple whitespace bypasses", () => {
   assert.deepEqual(terms, ["加微信"]);
 });
 
+test("findSensitiveCommentTerms detects zero-width character bypasses", () => {
+  const terms = withEnv({ COMMENT_SENSITIVE_TERMS: undefined }, () =>
+    findSensitiveCommentTerms("想加\u200b微\u200d信了解"),
+  );
+
+  assert.deepEqual(terms, ["加微信"]);
+});
+
 test("findSensitiveNoteTerms uses the note-specific configured dictionary", () => {
   const terms = withEnv({ NOTE_SENSITIVE_TERMS: "引流词,站外交易" }, () =>
     findSensitiveNoteTerms({
