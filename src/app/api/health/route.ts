@@ -74,6 +74,7 @@ async function checkService(configured: boolean, check: () => Promise<void>): Pr
 export async function GET() {
   // 健康检查用于部署和本地排障：实际 ping 必需依赖，同时把 Redis/AI 等增强项
   // 暴露为可观测状态，避免缓存或外部服务异常时只能从业务请求里发现。
+  const startedAt = Date.now();
   const [database, redis, storage] = await Promise.all([
     checkService(Boolean(process.env.DATABASE_URL), async () => {
       await db.$queryRaw`SELECT 1`;
@@ -96,6 +97,8 @@ export async function GET() {
   return Response.json(
     {
       app: "rednote",
+      checkedAt: new Date(startedAt).toISOString(),
+      durationMs: Date.now() - startedAt,
       services: {
         ai: {
           configured: Boolean(process.env.OPENAI_API_KEY),
