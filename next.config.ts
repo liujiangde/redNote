@@ -31,6 +31,7 @@ function getStorageRemotePattern(): ImageRemotePattern | null {
 const storageRemotePattern = getStorageRemotePattern();
 
 const nextConfig: NextConfig = {
+  allowedDevOrigins: ["192.168.147.87"],
   images: {
     // 本地 MinIO 和开发默认图允许跳过优化；生产环境启用 Next Image optimizer。
     unoptimized: !isProduction,
