@@ -29,22 +29,30 @@ export function LoginForm({
 
     // 登录使用 NextAuth Credentials。这里不直接调用数据库，密码校验统一留在
     // authOptions.authorize，避免客户端表单和服务端鉴权逻辑分叉。
-    const result = await signIn("credentials", {
-      email: String(formData.get("email") ?? ""),
-      password: String(formData.get("password") ?? ""),
-      callbackUrl,
-      redirect: false,
-    });
+    try {
+      const result = await signIn("credentials", {
+        email: String(formData.get("email") ?? ""),
+        password: String(formData.get("password") ?? ""),
+        callbackUrl,
+        redirect: false,
+      });
 
-    setPending(false);
+      if (!result?.ok) {
+        setError(result?.error === "CredentialsSignin" ? "邮箱或密码不正确。" : "登录服务暂时不可用，请稍后重试。");
+        return;
+      }
 
-    if (!result?.ok) {
-      setError("邮箱或密码不正确。");
-      return;
+      // NextAuth may return NEXTAUTH_URL's hostname even when the browser is
+      // accessing the dev server through a LAN address. Keep navigation on
+      // the current origin so the session cookie remains available.
+      const destination = new URL(result.url ?? callbackUrl, window.location.origin);
+      router.push(`${destination.pathname}${destination.search}${destination.hash}`);
+      router.refresh();
+    } catch {
+      setError("无法连接登录服务，请检查网络后重试。");
+    } finally {
+      setPending(false);
     }
-
-    router.push(result.url ?? callbackUrl);
-    router.refresh();
   }
 
   return (
@@ -56,7 +64,7 @@ export function LoginForm({
           注册成功，请登录。
         </p>
       )}
-      <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
+      <form className="mt-6 space-y-4" method="post" onSubmit={handleSubmit}>
         <label className="block">
           <span className="text-sm font-medium text-slate-700">邮箱</span>
           <input

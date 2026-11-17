@@ -7,7 +7,7 @@ import { UserStatus } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 
 const credentialsSchema = z.object({
-  email: z.string().email(),
+  email: z.string().trim().email().transform((value) => value.toLowerCase()),
   password: z.string().min(8),
 });
 
