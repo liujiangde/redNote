@@ -97,6 +97,8 @@ node --input-type=module -e "import 'dotenv/config'; import pg from 'pg'; const 
 - MinIO API: http://127.0.0.1:9000
 - MinIO Console: http://127.0.0.1:9001
 
+后台 Word 转 PDF 工具需要安装 LibreOffice，并通过 `SOFFICE_PATH` 指定 `soffice` 可执行文件（默认从 PATH 查找）。每个文件最大 20 MB，每次最多 10 个；服务器字体会影响转换排版。
+
 种子账号：
 
 - 管理员：`admin@rednote.local` / `rednote123`
