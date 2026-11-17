@@ -39,6 +39,17 @@ export function AdminShell({
           })}
         </nav>
       </aside>
+      <nav aria-label="后台导航" className="flex gap-2 overflow-x-auto border-b border-slate-200 bg-white px-4 py-3 lg:hidden">
+        {adminLinks.map((item) => (
+          <Link
+            className="shrink-0 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
+            href={item.href}
+            key={item.href}
+          >
+            {item.label}
+          </Link>
+        ))}
+      </nav>
       <main className="min-h-screen px-4 py-6 lg:ml-64 lg:px-8">{children}</main>
     </div>
   );
